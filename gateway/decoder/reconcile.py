@@ -60,6 +60,11 @@ class Reconciler:
 
         tick_s = frame.tick_ms / 1000.0
         offset = frame.rx_time - tick_s
+        if t.offsets and abs(offset - min(t.offsets)) > 30:
+            # tick clock jumped (device-side reset independent of seq):
+            # stale pre-jump offsets would otherwise win min() for a full
+            # window's worth of frames, dragging corrected_time far behind.
+            t.offsets.clear()
         t.offsets.append(offset)
         if len(t.offsets) > self.WINDOW:
             del t.offsets[: len(t.offsets) - self.WINDOW]
