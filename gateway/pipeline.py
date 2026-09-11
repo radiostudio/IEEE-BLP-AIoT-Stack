@@ -30,6 +30,8 @@ class Pipeline:
         if not self.deduper.accept(frame):
             return
         card, values = self.registry.decode(frame)
+        if frame.rssi is not None:
+            values = {**values, "rssi_dbm": float(frame.rssi)}
         if frame.uid not in self._announced:
             self._announced.add(frame.uid)
             pretty = "  ".join(f"{k}={v:.2f}" for k, v in values.items())
