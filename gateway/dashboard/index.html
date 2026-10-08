@@ -7,6 +7,7 @@
 <style>
   body { font-family: system-ui, sans-serif; margin: 1.5rem; background: #fafafa; color: #222; }
   h1 { font-size: 1.3rem; color: #1b5e8a; }
+  h2 { font-size: 1.05rem; color: #1b5e8a; margin: 1.4rem 0 .6rem; }
   table { border-collapse: collapse; width: 100%; background: #fff; }
   th, td { padding: .45rem .7rem; border-bottom: 1px solid #e2e2e2; text-align: left; font-size: .9rem; }
   th { background: #1b5e8a; color: #fff; }
@@ -14,24 +15,137 @@
   .ok { color: #1a7a3a; }
   #ann { margin-top: 1.2rem; font-size: .85rem; color: #555; }
   .stale { opacity: .55; }
+  #charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: .8rem; }
+  .card { background: #fff; border: 1px solid #e2e2e2; border-radius: 6px; padding: .55rem .7rem; }
+  .card .hd { display: flex; justify-content: space-between; align-items: baseline; font-size: .85rem; }
+  .card .nm { font-weight: 600; color: #1b5e8a; }
+  .card .cur { font-variant-numeric: tabular-nums; }
+  .card .rng { color: #888; font-size: .72rem; margin-top: .15rem; }
+  .card svg { display: block; width: 100%; height: 70px; margin-top: .25rem; }
+  .controls { margin: .3rem 0 .2rem; font-size: .82rem; color: #555; }
+  .controls select { font-size: .82rem; }
 </style>
 </head>
 <body>
 <h1>AIoT Gateway: live sensors</h1>
 <p>Thin view for the bench. The real product surface is the MCP server; ask the model, not this page.</p>
+
 <table id="tbl"><thead>
 <tr><th>UID</th><th>Part</th><th>Latest values</th><th>Age</th><th>Status</th><th>Delivery</th></tr>
 </thead><tbody></tbody></table>
+
+<div class="controls">
+  History window:
+  <select id="win">
+    <option value="3600">last 1 h</option>
+    <option value="21600" selected>last 6 h</option>
+    <option value="86400">last 24 h</option>
+    <option value="604800">last 7 d</option>
+  </select>
+  <span id="chartnote"></span>
+</div>
+<h2>History (from the gateway store, backfilled on open)</h2>
+<div id="charts"></div>
+
 <div id="ann"></div>
+
 <script>
+// charts[key] = {uid, field, points: [{ts,value}], el:{cur,rng,path,svg}}
+const charts = {};
+const CAP = 3000;                 // max points kept per chart in the browser
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function keyOf(uid, field) { return uid + '|' + field; }
+
+// decimals per field (default 2); current_a has 0.001 A resolution, so 2 places shows 0.00
+const DP = { current_a: 3 };
+const fmt = (field, v) => Number(v).toFixed(DP[field] ?? 2);
+
+function ensureCard(uid, field) {
+  const key = keyOf(uid, field);
+  if (charts[key]) return charts[key];
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML =
+    `<div class="hd"><span class="nm">${uid} &middot; ${field}</span>` +
+    `<span class="cur">-</span></div><div class="rng"></div>`;
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 320 70');
+  svg.setAttribute('preserveAspectRatio', 'none');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', '#1b5e8a');
+  path.setAttribute('stroke-width', '1.5');
+  path.setAttribute('vector-effect', 'non-scaling-stroke');
+  svg.appendChild(path);
+  card.appendChild(svg);
+  document.getElementById('charts').appendChild(card);
+  charts[key] = { uid, field, points: [],
+    el: { cur: card.querySelector('.cur'), rng: card.querySelector('.rng'), path } };
+  return charts[key];
+}
+
+function draw(c) {
+  const pts = c.points;
+  if (!pts.length) { c.el.path.setAttribute('d', ''); return; }
+  const W = 320, H = 70, pad = 3;
+  let t0 = pts[0].ts, t1 = pts[pts.length - 1].ts;
+  let vmin = Infinity, vmax = -Infinity;
+  for (const p of pts) { if (p.value < vmin) vmin = p.value; if (p.value > vmax) vmax = p.value; }
+  const tspan = (t1 - t0) || 1, vspan = (vmax - vmin) || 1;
+  const x = t => pad + (t - t0) / tspan * (W - 2 * pad);
+  const y = v => H - pad - (v - vmin) / vspan * (H - 2 * pad);
+  let d = '';
+  for (let i = 0; i < pts.length; i++) d += (i ? 'L' : 'M') + x(pts[i].ts).toFixed(1) + ' ' + y(pts[i].value).toFixed(1);
+  c.el.path.setAttribute('d', d);
+  const last = pts[pts.length - 1].value;
+  c.el.cur.textContent = fmt(c.field, last);
+  c.el.rng.textContent = 'min ' + fmt(c.field, vmin) + '  max ' + fmt(c.field, vmax) +
+    '  (' + pts.length + ' pts)';
+}
+
+function pushPoint(uid, field, ts, value) {
+  if (value == null || !isFinite(value)) return;
+  const c = ensureCard(uid, field);
+  const p = c.points;
+  if (p.length && ts <= p[p.length - 1].ts) return;   // keep monotonic
+  p.push({ ts, value });
+  if (p.length > CAP) p.splice(0, p.length - CAP);
+  draw(c);
+}
+
+async function backfill() {
+  const since = document.getElementById('win').value;
+  document.getElementById('chartnote').textContent = 'loading history...';
+  const sensors = await (await fetch('/api/sensors')).json();
+  for (const s of sensors) {
+    let latest;
+    try { latest = await (await fetch('/api/latest/' + encodeURIComponent(s.uid))).json(); }
+    catch (e) { continue; }
+    if (!latest.fields) continue;
+    for (const field of Object.keys(latest.fields)) {
+      const c = ensureCard(s.uid, field);
+      c.points = [];
+      try {
+        const r = await (await fetch('/api/series/' + encodeURIComponent(s.uid) +
+          '/' + encodeURIComponent(field) + '?since=' + since + '&agg=mean&bucket=60')).json();
+        c.points = (r.points || []).filter(p => isFinite(p.value)).map(p => ({ ts: p.ts, value: p.value }));
+      } catch (e) { /* leave empty */ }
+      draw(c);
+    }
+  }
+  document.getElementById('chartnote').textContent = '';
+}
+
 async function refresh() {
+  const now = Date.now() / 1000;
   const sensors = await (await fetch('/api/sensors')).json();
   const tbody = document.querySelector('#tbl tbody');
   tbody.innerHTML = '';
   for (const s of sensors) {
-    const latest = await (await fetch('/api/latest/' + s.uid)).json();
+    const latest = await (await fetch('/api/latest/' + encodeURIComponent(s.uid))).json();
     const vals = latest.fields
-      ? Object.entries(latest.fields).map(([k, v]) => `${k}=${Number(v.value).toFixed(2)}`).join('  ')
+      ? Object.entries(latest.fields).map(([k, v]) => `${k}=${fmt(k, v.value)}`).join('  ')
       : '(none)';
     const age = latest.fields ? Math.min(...Object.values(latest.fields).map(f => f.age_s)) : null;
     const tr = document.createElement('tr');
@@ -41,13 +155,23 @@ async function refresh() {
       `<td class="${s.sensor_ok ? 'ok' : 'bad'}">${s.sensor_ok ? 'ok' : 'FAULT'}${s.low_batt ? ' / low batt' : ''}</td>` +
       `<td>${(s.delivery_ratio * 100).toFixed(1)}%</td>`;
     tbody.appendChild(tr);
+    if (latest.fields) {
+      for (const [field, f] of Object.entries(latest.fields)) {
+        pushPoint(s.uid, field, now - (f.age_s || 0), Number(f.value));
+      }
+    }
   }
   const ann = await (await fetch('/api/annotations')).json();
   document.getElementById('ann').innerHTML = '<b>Journal (24 h):</b><br>' +
     ann.slice(-12).map(a => `${new Date(a.ts * 1000).toLocaleTimeString()} [${a.author ?? '?'}] ${a.note}`).join('<br>');
 }
-refresh();
-setInterval(refresh, 5000);
+
+document.getElementById('win').addEventListener('change', () => {
+  for (const k of Object.keys(charts)) charts[k].points = [];
+  backfill();
+});
+
+(async () => { await backfill(); await refresh(); setInterval(refresh, 5000); })();
 </script>
 </body>
 </html>

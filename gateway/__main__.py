@@ -93,7 +93,7 @@ def cmd_simulate(args) -> None:
 
 def cmd_mcp(args) -> None:
     from .mcp_server.server import build_server
-    build_server(_ctx()).run()
+    build_server(_ctx()).run(transport="streamable-http")
 
 
 def cmd_dashboard(args) -> None:

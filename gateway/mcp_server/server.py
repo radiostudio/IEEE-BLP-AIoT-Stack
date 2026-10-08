@@ -46,6 +46,8 @@ def build_server(ctx: GatewayContext | None = None):
     ctx = ctx or GatewayContext.from_config()
     mcp = FastMCP(
         "aiot-gateway",
+        host="0.0.0.0",
+        port=8000,
         instructions=(
             "RadioStudio AIoT and Climate Change kit gateway. Sensors are "
             "described by machine-readable cards: call describe_sensor before "
