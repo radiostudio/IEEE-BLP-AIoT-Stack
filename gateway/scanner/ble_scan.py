@@ -8,6 +8,7 @@ on macOS. Nothing else in the codebase knows which radio is underneath.
 from __future__ import annotations
 
 import asyncio
+import sys
 import time
 from collections.abc import Callable
 
@@ -18,6 +19,29 @@ try:
     HAVE_BLEAK = True
 except ImportError:
     HAVE_BLEAK = False
+
+try:
+    from bleak.args.bluez import OrPattern
+except ImportError:
+    try:
+        from bleak.backends.bluezdbus.advertisement_monitor import OrPattern
+    except ImportError:
+        OrPattern = None  # Linux passive scanning unavailable; active scan is used
+
+
+def _bluez_passive_args(company_id: int) -> dict:
+    """BlueZ passive scanning (advertisement monitor) needs or_patterns.
+
+    A BlueZ active scan filters duplicate reports, so a node that advertises
+    every 100 ms is heard about once per ~10.5 s on the Uno Q and most `seq`
+    values look lost. A passive monitor receives every advertisement. It needs
+    bluetoothd --experimental (Experimental = true in /etc/bluetooth/main.conf).
+    """
+    if OrPattern is None or not sys.platform.startswith("linux"):
+        return {}
+    # AD type 0xFF = manufacturer specific data; first two bytes are the company ID
+    pattern = OrPattern(0, 0xFF, company_id.to_bytes(2, "little"))
+    return {"bluez": {"or_patterns": [pattern]}}
 
 
 class BleSource:
@@ -47,18 +71,24 @@ class BleSource:
                 return
             on_frame(frame)
 
-        kwargs = {"detection_callback": detection, "scanning_mode": "passive"}
+        kwargs = {"detection_callback": detection, "scanning_mode": "passive",
+                  **_bluez_passive_args(self.company_id)}
         if self.adapter:
             kwargs["adapter"] = self.adapter  # BlueZ only; ignored elsewhere
         try:
             scanner = BleakScanner(**kwargs)
             async with scanner:
+                print("[gateway] BLE scan mode: passive")
                 while True:
                     await asyncio.sleep(3600)
-        except Exception:
+        except Exception as exc:
             # WinRT and some BlueZ builds reject passive mode; active scan still
-            # receives the same advertisement payloads.
+            # receives the same advertisement payloads. On BlueZ it also drops
+            # repeats, so expect a low delivery ratio: say so instead of hiding it.
+            print(f"[gateway] BLE scan mode: active (passive unavailable: "
+                  f"{type(exc).__name__}: {exc})")
             kwargs.pop("scanning_mode", None)
+            kwargs.pop("bluez", None)
             scanner = BleakScanner(**kwargs)
             async with scanner:
                 while True:
