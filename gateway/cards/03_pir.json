@@ -8,7 +8,7 @@
   "interface": "GPIO digital, interrupt-timestamped edges",
   "measurands": [
     {"name": "motion", "unit": "bool", "range": [0, 1], "accuracy": "event detector, not presence", "payload_field": {"offset": 0, "size": 1, "encoding": "uint8", "scale": 1}},
-    {"name": "event_count", "unit": "count", "range": [0, 65535], "accuracy": "exact within counter wrap", "payload_field": {"offset": 1, "size": 2, "encoding": "uint16", "scale": 1}}
+    {"name": "event_count", "unit": "count", "range": [0, 65535], "accuracy": "exact within counter wrap", "payload_field": {"offset": 1, "size": 2, "encoding": "uint16", "scale": 1}, "counter": {"scope": "since_boot", "level_field": "motion"}}
   ],
   "sampling_period_s": 2,
   "plausibility": {
