@@ -164,7 +164,7 @@ The gateway is a contract, not a board: BLE scan in, timeseries store, MCP endpo
 ```
 gateway/
 ├── scanner/
-│   ├── ble_scan.py             # passive scan; filter on Company ID; RSSI logging
+│   ├── ble_scan.py             # passive scan (Linux: needs bluetoothd Experimental=true; see gateway/README); filter on Company ID; RSSI logging
 │   └── dedupe.py               # drop repeated adv of same (kit, type, seq)
 ├── decoder/
 │   ├── registry.py             # sensor_type_id + schema_version -> card -> parser

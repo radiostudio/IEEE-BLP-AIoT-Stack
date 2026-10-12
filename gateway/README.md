@@ -88,10 +88,30 @@ The code is identical on all targets; porting is environment work:
    both ship it). Copy the `gateway/` directory, `pip install -r
    gateway/requirements.txt`.
 2. **BLE backend:** bleak uses BlueZ on Linux automatically. Give the user
-   bluetooth permissions or run with the `bluetooth` group. On the Uno Q,
-   verify BlueZ passive-scan throughput with several beacons before a
-   classroom deployment (flagged in the architecture review); the code falls
-   back to active scanning by itself.
+   bluetooth permissions or run with the `bluetooth` group.
+
+   **On the Uno Q, enable BlueZ experimental mode, or the gateway will hear
+   only about one frame in five.** Passive scanning needs it. Without it the
+   gateway falls back to an active scan, and BlueZ's active scan filters
+   repeated advertisements: each node is heard about once every ~10.5 s no
+   matter how fast it transmits, so the delivery ratio reads about
+   `sample period / 10.5 s` (around 20% for a 2 s node) even though nothing is
+   being lost over the air. Enable it once per board (needs sudo):
+
+   ```
+   sudo cp /etc/bluetooth/main.conf /etc/bluetooth/main.conf.bak
+   sudo sed -i 's/^#Experimental = false/Experimental = true/' /etc/bluetooth/main.conf
+   sudo systemctl restart bluetooth      # then restart the gateway
+   ```
+
+   Check the gateway log for `BLE scan mode: passive`. If it says
+   `BLE scan mode: active (passive unavailable: ...)`, the flag is missing or
+   the BlueZ is older than 5.56 / the kernel older than 5.10. Measured on an
+   Uno Q (BlueZ 5.82, kernel 6.16) with 11 nodes: active scan about 12-75%
+   of `seq` values per node, passive scan 100% (BME688 96%). To undo, restore
+   the `.bak` copy and restart Bluetooth. The delivery ratio on the dashboard
+   is cumulative, so it recovers slowly after the fix unless the database is
+   reset.
 3. **GPIO actions:** `rules/engine.py` has a clearly marked stub for the
    `gpio` action type; map it to gpiozero or libgpiod on the target. Rule
    specs do not change.

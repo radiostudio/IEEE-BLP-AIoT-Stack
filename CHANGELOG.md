@@ -36,6 +36,14 @@
 - `FIX_PIR_EVENT_COUNT_2026-10-07.md`: write-up of the PIR fix and its
   validation.
 
+### Documentation
+- `gateway/README.md` (Uno Q porting, step 2): replaced "the code falls back to
+  active scanning by itself" with the `Experimental = true` setup, how to
+  verify it from the log, and what a low delivery ratio then means.
+- `00_ARCHITECTURE_AND_CODE_STRUCTURE.md`: `ble_scan.py` entry notes the Linux
+  prerequisite.
+- `FIX_BLE_DELIVERY_RATIO_2026-10-08.md`: measurements and cause.
+
 ### Notes
 - Receiving every frame raises the stored row rate to roughly 890,000 rows per
   day (about 80 MB/day) on the Uno Q. `python -m gateway downsample` rolls raw
