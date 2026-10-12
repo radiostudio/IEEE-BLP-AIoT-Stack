@@ -81,6 +81,21 @@ def build_manufacturer_data(frame: RawFrame) -> bytes:
     return head + frame.payload
 
 
+RELAY_ACTUATOR_TYPE_ID = 18  # gateway/cards/18_relay_actuator.json
+
+
+def build_relay_command(kit_id: int, on: bool, seq: int, tick_ms: int,
+                        schema_version: int = 1) -> bytes:
+    """Manufacturer data (WITHOUT the company ID) for a relay command frame.
+
+    Same header as every sensor frame; payload is one byte, relay_state.
+    """
+    return build_manufacturer_data(RawFrame(
+        kit_id=kit_id, sensor_type_id=RELAY_ACTUATOR_TYPE_ID,
+        schema_version=schema_version, seq=seq, tick_ms=tick_ms,
+        status=STATUS_SENSOR_OK, payload=bytes([1 if on else 0])))
+
+
 def load_config(path: str | Path | None = None) -> dict:
     p = Path(path) if path else DEFAULT_CONFIG
     if p.exists():

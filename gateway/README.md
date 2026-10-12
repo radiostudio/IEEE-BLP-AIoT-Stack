@@ -62,6 +62,7 @@ python -m gateway mcp          # stdio transport
 | `token` | prints the deploy_rule capability token to hand to an agent |
 | `downsample` | roll old raw rows into aggregates (eMMC-friendly) |
 | `smoke` | self-test of the whole pipeline |
+| `relay on\|off [--seq N]` | prints the type-18 relay command frame to advertise from nRF Connect (the scanner is receive-only) |
 
 ## Layout (mirrors the architecture document)
 

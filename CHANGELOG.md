@@ -30,6 +30,14 @@
     10 of 11 nodes (BME688 96%) over 60 s.
 
 ### Added
+- **Relay actuator card (type 18, provisional)** for the new
+  `IEEE-BLP-RelayActuator` node, which scans for a CONTRACT command frame and
+  latches a relay with a beep indication. `gateway/cards/18_relay_actuator.json`
+  (`role: actuator`, no measurands), `build_relay_command()` in `core.py`,
+  `python -m gateway relay on|off` (prints the bytes to advertise from nRF
+  Connect; the gateway cannot transmit yet), and
+  `gateway/tests/test_relay_command.py`. The rule engine's `gpio` action is
+  still a stub and does not send this frame.
 - `gateway/tests/test_counters.py`: 6 checks for the counter tracker
   (reboot, boot-high, idle node, no double count with fixed firmware, uint16
   wrap, stale frame). Run: `python -m gateway.tests.test_counters`.

@@ -1,0 +1,25 @@
+{
+  "card_version": "1.0",
+  "sensor_type_id": 18,
+  "schema_version": 1,
+  "role": "actuator",
+  "part": "Relay + buzzer actuator node",
+  "packaged_part": "[PLACEHOLDER]",
+  "sim": "ACT1",
+  "interface": "GPIO22 relay (NPN low-side driver, active HIGH), GPIO21 active buzzer; BLE observer (scans, never advertises)",
+  "note": "PROVISIONAL card claiming the next free id (18) for firmware repo IEEE-BLP-RelayActuator. Unlike cards 1-17 this is a COMMAND frame: the gateway (or nRF Connect on a phone) advertises it and the node scans for it. The node transmits nothing, so no readings of this type ever reach the store; relay state is confirmed only on the node's serial log. A new seq = a new command (the sender repeats one command many times per second; the node ignores repeats of the last seq). A command asking for the state the relay is already in is accepted without a beep. The relay always powers up OFF; state is not persisted.",
+  "measurands": [],
+  "command_payload": [
+    {"name": "relay_state", "unit": "bool", "range": [0, 1], "payload_field": {"offset": 0, "size": 1, "encoding": "uint8", "scale": 1}, "values": {"0": "OFF (release relay, two beeps)", "1": "ON (energize relay, one beep)"}}
+  ],
+  "indication": "fixed-length beep per relay state change: ON = 1 beep, OFF = 2 beeps (200 ms each, 150 ms gap)",
+  "failure_modes": [
+    "no reaction to a command: wrong kit_id / type / schema, or the same seq as the previous command (treated as a repeat); change seq for every new command",
+    "relay_state other than 0 or 1: frame rejected, node logs a warning",
+    "single command lost in the air: the sender must repeat the advert for a few seconds; the node does not acknowledge, so a missed command is invisible to the gateway",
+    "node reboot: relay returns to OFF regardless of the last command"
+  ],
+  "mounting": "relay contacts on the J2 terminal block (NC/COM/NO), rated 12 A / 250 VAC, 15 A / 24 VDC; mains wiring by a qualified person only",
+  "packaged_dimensions_mm": "[PLACEHOLDER]",
+  "connector": "[PLACEHOLDER: keyed harness part number]"
+}
