@@ -43,7 +43,9 @@ def main() -> int:
         tmp = Path(tmp)
         store = Store(tmp / "smoke.db")
         registry = CardRegistry()
-        check("cards loaded (14 expected)", len(registry.all_cards()) == 14,
+        expected_cards = len(list(registry.cards_dir.glob("*.json")))
+        check(f"cards loaded ({expected_cards} expected)",
+              len(registry.all_cards()) == expected_cards,
               f"got {len(registry.all_cards())}")
 
         # 1. frame codec round-trip

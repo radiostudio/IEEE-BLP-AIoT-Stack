@@ -1,0 +1,28 @@
+{
+  "card_version": "1.0",
+  "sensor_type_id": 17,
+  "schema_version": 1,
+  "part": "SHT40",
+  "packaged_part": "[PLACEHOLDER]",
+  "sim": "SIM2",
+  "interface": "I2C @ 0x44, 3.3 V",
+  "note": "PROVISIONAL card claiming the next free id (17) for firmware repo IEEE-BLP-SHT40; gateway/cards/ previously only went up to id 16. Field layout (temperature_c, humidity_pct; int16/uint16 LE, scale 0.01 each) mirrors 02_bme688.json's first two measurands, which use the same encoding for the same physical quantities. Conversion formulas (T = -45 + 175*raw/65535, RH = -6 + 125*raw/65535, clamped to 0-100) are the Sensirion SHT4x datasheet's standard formulas and are NOT yet confirmed against real hardware -- confirm before treating readings from this card as ground truth, per the same caution that applied to 15_rs485_soil.json before its scale correction.",
+  "measurands": [
+    {"name": "temperature_c", "unit": "degC", "range": [-40, 125], "accuracy": "±0.2 degC typical (Sensirion SHT40 datasheet; not yet confirmed against real hardware)", "payload_field": {"offset": 0, "size": 2, "encoding": "int16", "scale": 0.01}},
+    {"name": "humidity_pct", "unit": "%RH", "range": [0, 100], "accuracy": "±1.8 %RH typical (Sensirion SHT40 datasheet; not yet confirmed against real hardware)", "payload_field": {"offset": 2, "size": 2, "encoding": "uint16", "scale": 0.01}}
+  ],
+  "sampling_period_s": 5,
+  "plausibility": {
+    "temperature_c": {"min": -40, "max": 85, "max_step_per_min": 8},
+    "humidity_pct": {"min": 0, "max": 100, "max_step_per_min": 25}
+  },
+  "failure_modes": [
+    "CRC-8 mismatch on the I2C reply: a comms fault, not a physical reading -- sensor_ok cleared, last known-good value held rather than replaced with garbage",
+    "flat/stuck reading across a known environmental change: I2C bus fault or sensor lockup, power-cycle the board",
+    "humidity pinned at 0 or 100: condensation on the die, or the sensor pulled into an incompatible environment"
+  ],
+  "mounting": "free airflow around the sensor body; avoid self-heating from nearby components and direct sunlight",
+  "packaged_dimensions_mm": "[PLACEHOLDER]",
+  "connector": "[PLACEHOLDER: keyed harness part number]",
+  "datasheet_uri": "mcp_server/resources/datasheets/sht40.pdf"
+}

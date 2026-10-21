@@ -8,7 +8,7 @@
   "interface": "GPIO digital with pull-up, interrupt-timestamped transitions",
   "measurands": [
     {"name": "door_open", "unit": "bool", "range": [0, 1], "accuracy": "state, exact; meaning depends on magnet alignment", "payload_field": {"offset": 0, "size": 1, "encoding": "uint8", "scale": 1}},
-    {"name": "transition_count", "unit": "count", "range": [0, 65535], "accuracy": "exact within wrap", "payload_field": {"offset": 1, "size": 2, "encoding": "uint16", "scale": 1}}
+    {"name": "transition_count", "unit": "count", "range": [0, 65535], "accuracy": "exact within wrap", "payload_field": {"offset": 1, "size": 2, "encoding": "uint16", "scale": 1}, "counter": {"scope": "since_boot", "level_field": "door_open"}}
   ],
   "sampling_period_s": 2,
   "plausibility": {

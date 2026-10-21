@@ -7,6 +7,7 @@ scanner (BLE or simulator) -> dedupe -> card decode -> reconcile -> store
 from __future__ import annotations
 
 from .core import RawFrame
+from .decoder.counters import CounterTracker
 from .decoder.reconcile import Reconciler
 from .decoder.registry import CardRegistry
 from .scanner.dedupe import Deduper
@@ -20,6 +21,7 @@ class Pipeline:
         self.registry = registry or CardRegistry()
         self.deduper = Deduper()
         self.reconciler = Reconciler()
+        self.counters = CounterTracker()
         self.rule_engine = rule_engine
         self.frames_in = 0
         self.frames_stored = 0
@@ -30,6 +32,8 @@ class Pipeline:
         if not self.deduper.accept(frame):
             return
         card, values = self.registry.decode(frame)
+        if card is not None:
+            values = self.counters.apply(frame, card, values)
         if frame.uid not in self._announced:
             self._announced.add(frame.uid)
             pretty = "  ".join(f"{k}={v:.2f}" for k, v in values.items())

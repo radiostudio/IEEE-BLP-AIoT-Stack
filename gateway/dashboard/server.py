@@ -11,6 +11,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from ..mcp_server.context import GatewayContext
 from ..mcp_server.tools.list_sensors import list_sensors
@@ -43,12 +44,43 @@ def make_handler(ctx: GatewayContext):
             elif self.path == "/api/sensors":
                 self._json(list_sensors(ctx))
             elif self.path.startswith("/api/latest/"):
-                uid = self.path.rsplit("/", 1)[-1]
+                uid = unquote(self.path.rsplit("/", 1)[-1])
                 self._json(read_latest(ctx, uid))
+            elif self.path.startswith("/api/series/"):
+                self._series()
             elif self.path == "/api/annotations":
                 self._json(ctx.store.annotations(since=time.time() - 86400))
             else:
                 self._json({"error": "not found"}, 404)
+
+        def _series(self):
+            # /api/series/<uid>/<field>?since=<s>&agg=<mean|min|max|raw>&bucket=<s>
+            # Reads history straight from the store so a freshly opened
+            # dashboard backfills its graphs instead of starting blank.
+            parts = urlsplit(self.path)
+            segs = parts.path.split("/")  # ['', 'api', 'series', uid, field]
+            if len(segs) != 5 or not segs[3] or not segs[4]:
+                self._json({"error": "usage /api/series/<uid>/<field>"}, 400)
+                return
+            uid = unquote(segs[3])
+            field = unquote(segs[4])
+            q = parse_qs(parts.query)
+            try:
+                since = float(q.get("since", ["21600"])[0])
+                bucket = int(q.get("bucket", ["60"])[0])
+            except ValueError:
+                self._json({"error": "since and bucket must be numbers"}, 400)
+                return
+            since = max(1.0, min(since, 30 * 86400))
+            bucket = max(1, min(bucket, 3600))
+            agg = q.get("agg", ["mean"])[0]
+            if agg not in ("mean", "min", "max"):
+                agg = None
+            now = time.time()
+            pts = ctx.store.query_timeseries(
+                uid, field, now - since, now, agg=agg, bucket_s=bucket)
+            self._json({"uid": uid, "field": field,
+                        "agg": agg, "bucket_s": bucket, "points": pts})
 
     return Handler
 
@@ -61,7 +93,7 @@ def serve(ctx: GatewayContext, port: int = 8931, background: bool = False):
     last_exc: Exception | None = None
     for candidate in range(port, port + 20):
         try:
-            httpd = ThreadingHTTPServer(("127.0.0.1", candidate),
+            httpd = ThreadingHTTPServer(("0.0.0.0", candidate),
                                         make_handler(ctx))
             break
         except OSError as exc:

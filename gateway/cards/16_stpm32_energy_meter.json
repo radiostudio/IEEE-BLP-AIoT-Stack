@@ -1,0 +1,26 @@
+{
+  "card_version": "1.0",
+  "sensor_type_id": 16,
+  "schema_version": 1,
+  "part": "STPM32 (STMicroelectronics), single-phase metrology IC, private UART frame protocol",
+  "sim": "SIM5-class",
+  "interface": "Direct UART to the metrology IC (CRC-8 framed, bit-reversed), ESP32 as bus master",
+  "measurands": [
+    {"name": "voltage_v", "unit": "V", "range": [0, 230], "accuracy": "per STPM32 datasheet class; scale confirmed on 2026-08-24 against EnergyMeterSensor.c's actual packing (voltage_mV = round(V * 1000))", "payload_field": {"offset": 0, "size": 4, "encoding": "uint32", "scale": 0.001}},
+    {"name": "current_a", "unit": "A", "range": [0, 65], "accuracy": "per STPM32 datasheet class; scale confirmed on 2026-08-24 against EnergyMeterSensor.c's actual packing (current_mA = round(A * 1000), same convention as voltage, not a separately-scaled field)", "payload_field": {"offset": 4, "size": 4, "encoding": "uint32", "scale": 0.001}},
+    {"name": "power_w", "unit": "W", "range": [0, 15000], "accuracy": "per STPM32 datasheet class; scale confirmed on 2026-08-24 against EnergyMeterSensor.c's actual packing (power_mW = activePower, already computed in milliwatts)", "payload_field": {"offset": 8, "size": 4, "encoding": "uint32", "scale": 0.001}}
+  ],
+  "sampling_period_s": 5,
+  "plausibility": {
+    "voltage_v": {"min": 0, "max": 230, "max_step_per_min": 50},
+    "current_a": {"min": 0, "max": 65, "max_step_per_min": 65},
+    "power_w": {"min": 0, "max": 15000, "max_step_per_min": 15000}
+  },
+  "failure_modes": [
+    "voltage and current both read exactly 0: STPM32 did not power up, or a gain/latch register write failed -- sensor_ok drops rather than advertising a plausible-looking zero",
+    "voltage pinned at exactly 230 V: firmware clamp, not a genuine reading -- treat any exact 230 as saturated, not as 'grid is perfectly regulated'",
+    "current stuck at 0 with sensor_ok=1: could be a genuine no-load condition, or the current channel isn't wired to a load -- this firmware does not currently distinguish those two cases"
+  ],
+  "mounting": "per RadioStudio hardware board (RS-P-00xxxxx); AC load wired per the STPM32 reference design",
+  "datasheet_uri": "[PLACEHOLDER: STMicroelectronics STPM32 datasheet, not yet linked]"
+}

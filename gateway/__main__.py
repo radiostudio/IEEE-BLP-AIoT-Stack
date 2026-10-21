@@ -10,6 +10,7 @@
   python -m gateway liveness     watchdog pass: flag silent sensors
   python -m gateway downsample   roll old raw rows into aggregates
   python -m gateway smoke        end-to-end self-test, no hardware needed
+  python -m gateway relay on|off print the type-18 relay command frame for nRF Connect
 
 Run from the directory that contains the gateway/ package.
 """
@@ -93,7 +94,7 @@ def cmd_simulate(args) -> None:
 
 def cmd_mcp(args) -> None:
     from .mcp_server.server import build_server
-    build_server(_ctx()).run()
+    build_server(_ctx()).run(transport="streamable-http")
 
 
 def cmd_dashboard(args) -> None:
@@ -131,6 +132,22 @@ def cmd_downsample(args) -> None:
     print(json.dumps(downsample(ctx.store,
                                 period_s=cfg.get("downsample_period_s", 300),
                                 keep_raw_s=args.keep_raw_s), indent=2))
+
+
+def cmd_relay(args) -> None:
+    # The gateway scanner (bleak) can only receive, so this prints the frame
+    # to advertise from another device (nRF Connect -> Advertiser) instead of
+    # sending it. Use a fresh --seq for every new command.
+    import time
+    from .core import COMPANY_ID, build_relay_command
+    kit_id = args.kit_id if args.kit_id is not None else (load_config().get("kit_id") or 1)
+    seq = args.seq if args.seq is not None else int(time.time()) & 0xFFFF
+    tick_ms = int(time.monotonic() * 1000) & 0xFFFFFFFF
+    data = build_relay_command(kit_id, args.state == "on", seq, tick_ms)
+    print(f"relay {args.state.upper()}  kit_id={kit_id} seq={seq}")
+    print(f"company ID (nRF Connect): 0x{COMPANY_ID:04X}")
+    print(f"data (nRF Connect):       0x{data.hex().upper()}")
+    print(f"full AD (company LE + data): {(COMPANY_ID.to_bytes(2, 'little') + data).hex(' ').upper()}")
 
 
 def cmd_smoke(args) -> None:
@@ -217,6 +234,12 @@ def main() -> None:
     s.set_defaults(fn=cmd_downsample)
 
     sub.add_parser("smoke").set_defaults(fn=cmd_smoke)
+
+    s = sub.add_parser("relay", help="print the relay command frame (type 18) to advertise from nRF Connect")
+    s.add_argument("state", choices=["on", "off"])
+    s.add_argument("--seq", type=int, default=None, help="command sequence; must differ from the last command")
+    s.add_argument("--kit-id", type=int, default=None)
+    s.set_defaults(fn=cmd_relay)
 
     s = sub.add_parser("tool", help="call a gateway tool from the CLI (no LLM needed)")
     s.add_argument("name")

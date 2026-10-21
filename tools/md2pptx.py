@@ -6,8 +6,9 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 
-SRC = Path(r"D:\downloads\IEEE_BLP\vibecoding\revised_course\ai_first_course\sensor_decks")
-OUT = Path(r"D:\downloads\IEEE_BLP\vibecoding\revised_course\ai_first_course\pptx")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SRC = REPO_ROOT / "sensor_decks"
+OUT = REPO_ROOT / "pptx"
 OUT.mkdir(exist_ok=True)
 EXPECTED = 9
 
