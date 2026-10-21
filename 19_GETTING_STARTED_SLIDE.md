@@ -14,9 +14,9 @@ slot's job and there's no kit connected yet.
 - Open a terminal (macOS/Linux) or PowerShell (Windows)
 - Paste one line, press Enter, wait
 - macOS/Linux:
-  `curl -fsSL https://raw.githubusercontent.com/sriram-rs/IEEE-BLP-AIoT-Stack/feature/onboarding-scripts/bootstrap.sh | bash`
+  `curl -fsSL https://raw.githubusercontent.com/radiostudio/IEEE-BLP-AIoT-Stack/main/bootstrap.sh | bash`
 - Windows:
-  `iwr https://raw.githubusercontent.com/sriram-rs/IEEE-BLP-AIoT-Stack/feature/onboarding-scripts/bootstrap.ps1 -UseBasicParsing | iex`
+  `iwr https://raw.githubusercontent.com/radiostudio/IEEE-BLP-AIoT-Stack/main/bootstrap.ps1 -UseBasicParsing | iex`
 - No git required, no manual download - this one line does everything
 - You'll know it worked when you see: `SMOKE TEST PASSED` and `Setup
   complete!`

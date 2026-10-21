@@ -1,5 +1,7 @@
 # AIoT and Climate Change: AI-First Course Package
 
+**Version:** v0.1.0 (see [CHANGELOG.md](CHANGELOG.md) and [currentstatus.md](currentstatus.md))
+
 Generated 5 August 2026. Supersedes the sensor-chapter structure of the Rev5 manual; the Rev5 hardware facts (packaging story, compatibility matrix, datasheet-reading habit) carry forward inside the new decks.
 
 ## Getting started (students)
@@ -7,11 +9,11 @@ Generated 5 August 2026. Supersedes the sensor-chapter structure of the Rev5 man
 Get your laptop ready for the workshop with one command - no download, no git, no manual setup steps:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/sriram-rs/IEEE-BLP-AIoT-Stack/feature/onboarding-scripts/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/radiostudio/IEEE-BLP-AIoT-Stack/main/bootstrap.sh | bash
 ```
 (macOS/Linux) or, in PowerShell on Windows:
 ```
-iwr https://raw.githubusercontent.com/sriram-rs/IEEE-BLP-AIoT-Stack/feature/onboarding-scripts/bootstrap.ps1 -UseBasicParsing | iex
+iwr https://raw.githubusercontent.com/radiostudio/IEEE-BLP-AIoT-Stack/main/bootstrap.ps1 -UseBasicParsing | iex
 ```
 
 Already have the code on your machine some other way? Just run `python3 start_installation.py` (macOS/Linux) or `python start_installation.py` (Windows) from inside it.
