@@ -25,10 +25,8 @@
 # "do { ... } while ($false)" block with "break" for early exits avoids
 # this entirely, since nothing is ever captured from an assignment.
 #
-# NOTE: $RepoZipUrl below points at a branch. Update it to point at `main`
-# once feature/onboarding-scripts merges.
 
-$RepoZipUrl = "https://github.com/sriram-rs/IEEE-BLP-AIoT-Stack/archive/refs/heads/feature/onboarding-scripts.zip"
+$RepoZipUrl = "https://github.com/radiostudio/IEEE-BLP-AIoT-Stack/archive/refs/heads/main.zip"
 $DestDir = Join-Path (Get-Location) "IEEE-BLP-AIoT-Stack"
 $ExitCode = 1
 

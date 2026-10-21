@@ -8,11 +8,9 @@
 #
 #   curl -fsSL <raw-url-of-this-file> | bash -s -- --with-pptx
 #
-# NOTE: REPO_ZIP_URL below points at a branch. Update it to point at `main`
-# once feature/onboarding-scripts merges.
 set -u
 
-REPO_ZIP_URL="https://github.com/sriram-rs/IEEE-BLP-AIoT-Stack/archive/refs/heads/feature/onboarding-scripts.zip"
+REPO_ZIP_URL="https://github.com/radiostudio/IEEE-BLP-AIoT-Stack/archive/refs/heads/main.zip"
 DEST_DIR="$(pwd)/IEEE-BLP-AIoT-Stack"
 
 echo "== Downloading the AIoT Gateway course code =="
