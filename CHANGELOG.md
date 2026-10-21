@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (2026-10-08)
+## v0.1.0 (2026-10-21)
 
 ### Fixed
 - **PIR `event_count` inconsistent on the dashboard.** The count restarted at 0
