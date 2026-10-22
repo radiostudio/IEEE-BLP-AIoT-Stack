@@ -1,9 +1,9 @@
 """Reboot-aware event counters.
 
 Some sensors (PIR, reed, touch) report a cumulative event count that lives in
-RAM on the node: it restarts at 0 on every reboot and wraps at 65535. Stored
-raw, the count drops on a reboot and the dashboard shows an activity history
-that goes backwards.
+RAM on the node: it restarts at 0 on every reboot and wraps at 65535. The
+gateway follows the node: the count restarts at 0 when the node reboots, and
+only uint16 wraps within one boot are carried forward.
 
 A card opts a measurand in with a "counter" block:
 
@@ -17,7 +17,8 @@ event_count=0. When the first frame of a boot shows that, the pending event is
 counted so the invariant "motion=1 implies at least one event" holds.
 
 `CounterTracker.apply` returns the frame's values with those measurands
-replaced by a series that keeps rising across node reboots and counter wraps.
+replaced by a series that restarts at 0 on a node reboot and keeps rising
+across counter wraps.
 State is in memory: after a gateway restart the series re-baselines at the
 node's current raw count.
 """
@@ -62,8 +63,8 @@ class CounterTracker:
             if t is None:
                 t = _Track(frame.tick_ms, raw, 0, int(bool(level) and raw == 0), 0)
             elif frame.tick_ms + _REBOOT_TICK_DROP_MS < t.last_tick:
-                # node rebooted: carry everything counted so far into the offset
-                t = _Track(frame.tick_ms, raw, t.last_out, int(bool(level) and raw == 0), 0)
+                # node rebooted: the count restarts with the node
+                t = _Track(frame.tick_ms, raw, 0, int(bool(level) and raw == 0), 0)
             elif frame.tick_ms < t.last_tick:
                 # stale frame arriving late: report it but don't move the state
                 out[name] = float(t.offset + t.bias + raw)
