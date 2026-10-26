@@ -22,15 +22,13 @@ def _run(frames):
     return [(int(v["motion"]), int(v["event_count"])) for v in out]
 
 
-def test_reboot_keeps_count_rising():
+def test_reboot_resets_count():
     # the 13:29-13:30 sequence from the bench: count 2, node reboots, 0, 0, 3, 4
     got = _run([_frame(100, 1, 2), _frame(5, 1, 0), _frame(15, 1, 0),
                 _frame(47, 1, 3), _frame(57, 1, 4)])
-    counts = [c for _, c in got]
-    assert counts == sorted(counts), counts
     # first frame after the reboot: PIR already high, firmware has not counted it
-    assert got[1] == (1, 3), got
-    assert got[-1][1] == 2 + 1 + 4, got
+    assert got[1] == (1, 1), got
+    assert [c for _, c in got] == [2, 1, 1, 4, 5], got
 
 
 def test_motion_high_implies_count_at_least_one():

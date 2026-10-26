@@ -1,6 +1,6 @@
 # AIoT and Climate Change: AI-First Course Package
 
-**Version:** v0.1.0 (see [CHANGELOG.md](CHANGELOG.md) and [currentstatus.md](currentstatus.md))
+**Version:** v0.1.1 (see [CHANGELOG.md](CHANGELOG.md) and [currentstatus.md](currentstatus.md))
 
 Generated 5 August 2026. Supersedes the sensor-chapter structure of the Rev5 manual; the Rev5 hardware facts (packaging story, compatibility matrix, datasheet-reading habit) carry forward inside the new decks.
 

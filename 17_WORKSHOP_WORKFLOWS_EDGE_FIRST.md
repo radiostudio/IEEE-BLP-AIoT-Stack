@@ -110,7 +110,7 @@ this context; in Phase A they discipline themselves to record it.
 3. APPROVE  python -m gateway approve-rule my_rule      (the human gate, kept even when
                                                          the author is human: the habit matters)
 4. OBSERVE  rule fires appear on the console and in the journal
-5. MEASURE  python -m gateway tool query_timeseries 1:11 irms_a 120 mean
+5. MEASURE  python -m gateway tool query_timeseries 1:11 load_current_rms_a 120 mean
             did the rule change the measured energy? (predict first, then look)
 ```
 

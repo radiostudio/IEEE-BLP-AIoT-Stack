@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.1.1 (2026-10-26)
+
+### Changed
+- **PIR `event_count` now restarts at 0 when the node reboots**, so the
+  dashboard follows the node instead of carrying the pre-reboot total. This
+  reverses the v0.1.0 behaviour ("keeps rising across node reboots"). uint16
+  wraps within one boot are still carried forward, and a PIR high at power-up
+  still counts as one event. `gateway/decoder/counters.py`,
+  `gateway/tests/test_counters.py` (`test_reboot_resets_count`).
+- **SCT-013 card (type 11): `irms_a` renamed to `load_current_rms_a`, and
+  `apparent_va` dropped.** The card, its plausibility key, the `cold_chain`
+  recipe, the dashboard decimal setting (3 places) and the workshop example
+  query use the new name. Existing stored rows under `irms_a` are not
+  renamed, so queries for the old field find nothing on a database that
+  predates this change.
+  - `firmware/sim-firmware/README.md` still lists `irms_a` and `va` for type 11;
+    not updated here.
+
+### Added
+- `tools/gateway_loadtest.py`: stdlib load test that simulates N phones opening
+  the dashboard (`dashboard` and `ping` modes) and reports per-endpoint
+  latency, errors and a SMOOTH / DEGRADED / OVERLOADED verdict.
+- `todo.md`: checklist of packages and system setup for a gateway transmit
+  path on the Windows PC and the Uno Q (relay actuator). Nothing in it has
+  been installed or tried.
+- `currentstatus.md`: status of the stack software.
+
 ## v0.1.0 (2026-10-21)
 
 ### Fixed
