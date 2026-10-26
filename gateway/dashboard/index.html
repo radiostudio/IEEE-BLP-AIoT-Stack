@@ -57,8 +57,8 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 
 function keyOf(uid, field) { return uid + '|' + field; }
 
-// decimals per field (default 2); current_a has 0.001 A resolution, so 2 places shows 0.00
-const DP = { current_a: 3 };
+// decimals per field (default 2); current fields have 0.001 A resolution, so 2 places shows 0.00
+const DP = { current_a: 3, load_current_rms_a: 3 };
 const fmt = (field, v) => Number(v).toFixed(DP[field] ?? 2);
 
 function ensureCard(uid, field) {

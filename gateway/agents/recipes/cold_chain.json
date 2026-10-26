@@ -5,7 +5,7 @@
   "sensors": [
     {"uid": "1:1", "field": "temperature_c", "role": "cold-store temperature (5 degC / 4 h HACCP rule)", "agg": "max", "bucket_s": 300},
     {"uid": "1:10", "field": "door_open", "role": "root-cause disambiguator (Events, Not Samples)", "agg": "max", "bucket_s": 300},
-    {"uid": "1:11", "field": "irms_a", "role": "compressor running confirmation", "agg": "mean", "bucket_s": 300}
+    {"uid": "1:11", "field": "load_current_rms_a", "role": "compressor running confirmation", "agg": "mean", "bucket_s": 300}
   ],
   "reasoning_prompt": "Apply the four-quadrant diagnosis: temperature rising with door open is carelessness (close the door); rising with door closed and compressor current at zero is a compressor or power fault (critical, move the food); rising with door closed and compressor running is load or refrigerant trouble. Produce the HACCP event log for the window: every excursion above 5 degC with duration, peak, attributed cause, and the action taken or required."
 }

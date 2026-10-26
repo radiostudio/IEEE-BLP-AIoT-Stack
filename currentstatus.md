@@ -60,7 +60,7 @@ The smoke test uses simulated data, not radio.
 | 8 | MEMS mic SPL | spl_db |
 | 9 | JSN-SR04T | distance_mm |
 | 10 | Reed switch | door_open, transition_count |
-| 11 | SCT-013-030 | irms_a, apparent_va |
+| 11 | SCT-013-030 | load_current_rms_a |
 | 12 | SEN0193 soil moisture | raw_mv, moisture_pct |
 | 13 | Bare-trace water presence | wet, raw_mv |
 | 14 | AT42QT1010 touch | present, touch_count |

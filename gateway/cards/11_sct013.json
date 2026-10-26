@@ -7,13 +7,12 @@
   "sim": "SIM4",
   "interface": "0-1 V AC into biased SIM4 ADC; firmware samples ~1 kHz and reports RMS once per second",
   "measurands": [
-    {"name": "irms_a", "unit": "A", "range": [0, 30], "accuracy": "~1-2% mid-range; unreliable below ~0.05 A; ~24 mA floor unassisted", "payload_field": {"offset": 0, "size": 2, "encoding": "uint16", "scale": 0.001}},
-    {"name": "apparent_va", "unit": "VA", "range": [0, 7200], "accuracy": "assumes 230 V nominal; ±(voltage variation + current error)", "payload_field": {"offset": 2, "size": 2, "encoding": "uint16", "scale": 1}}
+    {"name": "load_current_rms_a", "unit": "A", "range": [0, 30], "accuracy": "~1-2% mid-range; unreliable below ~0.05 A; ~24 mA floor unassisted", "payload_field": {"offset": 0, "size": 2, "encoding": "uint16", "scale": 0.001}}
   ],
   "sampling_period_s": 2,
   "acceptance_test": "clamp on a known resistive load (kettle); reading must match P/230 within ±10% before data collection begins; record result via annotate",
   "plausibility": {
-    "irms_a": {"min": 0, "max": 31, "max_step_per_min": 31}
+    "load_current_rms_a": {"min": 0, "max": 31, "max_step_per_min": 31}
   },
   "failure_modes": [
     "systematic underreading: jaw not fully closed; a gap invisible to the eye can halve the reading and it stays plausible-looking",
