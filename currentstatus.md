@@ -1,6 +1,6 @@
 # Current Status
 
-Status of the AIoT stack software (gateway, sensor cards, dashboard, MCP server, onboarding scripts) as of 2026-10-21, on branch `feature/onboarding-scripts`. Intended first release: `v0.1.0`.
+Status of the AIoT stack software (gateway, sensor cards, dashboard, MCP server, onboarding scripts) as of 2026-10-26. Release: `v0.1.1` (previous: `v0.1.0`, 2026-10-21).
 
 How to read this: **Verified** means run and passed in this repo's own tests or confirmed on hardware per the repo's write-ups. **Not verified** means the code exists but has not been shown working end to end. Anything not listed here has not been assessed.
 
@@ -26,7 +26,7 @@ Entry point: `python -m gateway run` (or `gateway.bat` / `gateway.sh`, which pic
 | Component | Path | Notes |
 |---|---|---|
 | Scanner | `gateway/scanner/` | `ble_scan.py` (bleak), `sim_source.py` (simulated source), `dedupe.py` |
-| Decoder and registry | `gateway/decoder/`, `gateway/core.py` | Loads cards, decodes CONTRACT frames. `reconcile.py` handles the tick clock. `counters.py` keeps counters rising across node reboots. |
+| Decoder and registry | `gateway/decoder/`, `gateway/core.py` | Loads cards, decodes CONTRACT frames. `reconcile.py` handles the tick clock. `counters.py` follows the node's event counters (restart at 0 on a node reboot, uint16 wraps carried). |
 | Pipeline | `gateway/pipeline.py` | Decode, counter tracking, store, rule evaluation |
 | Store | `gateway/store/` | SQLite, plus `downsample.py` |
 | Rules | `gateway/rules/` | Engine plus approved rules in `rules.d/` (one: `corridor_lighting.json`) |
@@ -34,7 +34,7 @@ Entry point: `python -m gateway run` (or `gateway.bat` / `gateway.sh`, which pic
 | Agents | `gateway/agents/` | Orchestrator and two recipes: `cold_chain`, `occupancy` |
 | Dashboard | `gateway/dashboard/` | Live table plus history charts, window selectable |
 
-### Tests (run on 2026-10-21 with `.venv-gateway`)
+### Tests (run on 2026-10-26 with `.venv-gateway`)
 
 | Test | Result |
 |---|---|
@@ -69,13 +69,16 @@ The smoke test uses simulated data, not radio.
 | 17 | SHT40 | temperature_c, humidity_pct |
 | 18 | Relay and buzzer actuator (provisional) | none (`role: actuator`) |
 
-Counter-type measurands (`event_count` on PIR, `transition_count` on reed) carry a `counter` annotation (`scope: since_boot`, `level_field`). The gateway uses it to keep the count rising across node reboots and uint16 wraps. Only PIR has the fix exercised by a test; the reed annotation was added in `e26b7a4` and has no dedicated test.
+Counter-type measurands (`event_count` on PIR, `transition_count` on reed) carry a `counter` annotation (`scope: since_boot`, `level_field`). The gateway uses it to restart the count at 0 when the node reboots and to carry uint16 wraps within a boot. Only PIR has this exercised by a test; the reed annotation was added in `e26b7a4` and has no dedicated test.
 
 ---
 
 ## What changed recently (see `CHANGELOG.md`)
 
-- PIR `event_count` now rises across node reboots and wraps (`gateway/decoder/counters.py`).
+- v0.1.1: PIR `event_count` restarts at 0 on a node reboot (reverses the v0.1.0 "keeps rising" behaviour).
+- v0.1.1: SCT-013 card field `irms_a` renamed to `load_current_rms_a`, `apparent_va` dropped. Old stored rows keep the old name.
+- v0.1.1: `tools/gateway_loadtest.py` dashboard load test added; actuator transmit-path package checklist added to `todo.md`.
+- v0.1.0: PIR `event_count` counter tracking (`gateway/decoder/counters.py`).
 - Passive BLE scan with `or_patterns` on Linux, which raised capture on the Uno Q to 100% of `seq` values for 10 of 11 nodes over 60 s. Requires `Experimental = true` in `/etc/bluetooth/main.conf`.
 - Dashboard served over the network with live history charts.
 - Relay actuator card (type 18) and `build_relay_command()`.
@@ -126,7 +129,7 @@ Onboarding: `bootstrap.ps1` / `bootstrap.sh` fetch the code and run `setup`. A f
 
 ## Release and Docker
 
-- No git tags or GitHub Releases exist yet. The plan is to merge this branch to `main` and tag `v0.1.0`.
+- Tags: `v0.1.0` (2026-10-21) is published. `v0.1.1` is tagged on `main` after its PR merges.
 - The Docker build should fetch the tag, not a branch or commit:
-  `git clone --branch v0.1.0 --depth 1 <repo-url>`, or a build arg with the tag as its default.
-- Before tagging: rename the "Unreleased" heading in `CHANGELOG.md` to `v0.1.0` with the release date.
+  `git clone --branch v0.1.1 --depth 1 <repo-url>`, or a build arg with the tag as its default.
+- The bootstrap one-liners still follow `main`, not a tag.
