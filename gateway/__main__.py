@@ -10,6 +10,8 @@
   python -m gateway liveness     watchdog pass: flag silent sensors
   python -m gateway downsample   roll old raw rows into aggregates
   python -m gateway smoke        end-to-end self-test, no hardware needed
+                                 (--backend influx: against InfluxDB instead of SQLite)
+  python -m gateway migrate-sqlite   copy an existing SQLite gateway.db into InfluxDB
   python -m gateway relay on|off print the type-18 relay command frame for nRF Connect
 
 Run from the directory that contains the gateway/ package.
@@ -20,6 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import signal
 import sys
 
 from .core import load_config
@@ -28,8 +31,11 @@ from .pipeline import Pipeline
 from .rules.engine import RuleEngine
 
 
-def _ctx() -> GatewayContext:
-    return GatewayContext.from_config(load_config())
+def _ctx(announce: bool = False) -> GatewayContext:
+    ctx = GatewayContext.from_config(load_config())
+    if announce:
+        print(f"[gateway] store: {ctx.store.describe()}")
+    return ctx
 
 
 async def _run_with_status(src, pipe: Pipeline, interval_s: int = 10) -> None:
@@ -52,7 +58,7 @@ def cmd_run(args) -> None:
     from .dashboard.server import serve
     from .scanner.ble_scan import BleSource
     cfg = load_config()
-    ctx = _ctx()
+    ctx = _ctx(announce=True)
     engine = RuleEngine(ctx.store)
     pipe = Pipeline(ctx.store, ctx.registry, engine)
     if not args.no_dashboard:
@@ -63,16 +69,18 @@ def cmd_run(args) -> None:
     print("[gateway] scanning BLE advertisements (Ctrl+C to stop)")
     try:
         asyncio.run(_run_with_status(src, pipe))
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
         print(f"\n[gateway] stopped. frames received: {pipe.frames_in}, "
               f"stored: {pipe.frames_stored}")
+    finally:
+        ctx.store.close()  # sends any queued InfluxDB writes
 
 
 def cmd_simulate(args) -> None:
     from .dashboard.server import serve
     from .scanner.sim_source import SimulatedSource
     cfg = load_config()
-    ctx = _ctx()
+    ctx = _ctx(announce=True)
     engine = RuleEngine(ctx.store)
     pipe = Pipeline(ctx.store, ctx.registry, engine)
     if not args.no_dashboard:
@@ -87,20 +95,22 @@ def cmd_simulate(args) -> None:
     print("[gateway] open the dashboard in your browser to watch the values")
     try:
         asyncio.run(_run_with_status(src, pipe))
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
         print(f"\n[gateway] stopped. frames received: {pipe.frames_in}, "
               f"stored: {pipe.frames_stored}")
+    finally:
+        ctx.store.close()
 
 
 def cmd_mcp(args) -> None:
     from .mcp_server.server import build_server
-    build_server(_ctx()).run(transport="streamable-http")
+    build_server(_ctx(announce=True)).run(transport="streamable-http")
 
 
 def cmd_dashboard(args) -> None:
     from .dashboard.server import serve
     cfg = load_config()
-    serve(_ctx(), port=args.port or cfg.get("dashboard_port", 8080))
+    serve(_ctx(announce=True), port=args.port or cfg.get("dashboard_port", 8080))
 
 
 def cmd_approve_rule(args) -> None:
@@ -128,6 +138,12 @@ def cmd_liveness(args) -> None:
 def cmd_downsample(args) -> None:
     from .store.downsample import downsample
     cfg = load_config()
+    if cfg.get("store_backend") == "influx":
+        ix = cfg["influx"]
+        print(f"nothing to do: InfluxDB rolls raw data into {ix['rollup_period']} "
+              f"buckets itself (continuous query) and drops raw data after "
+              f"{ix['raw_retention']}")
+        return
     ctx = _ctx()
     print(json.dumps(downsample(ctx.store,
                                 period_s=cfg.get("downsample_period_s", 300),
@@ -152,7 +168,16 @@ def cmd_relay(args) -> None:
 
 def cmd_smoke(args) -> None:
     from .tests.smoke_test import main as smoke_main
-    sys.exit(smoke_main())
+    sys.exit(smoke_main(args.backend))
+
+
+def cmd_migrate_sqlite(args) -> None:
+    from .store.migrate import migrate
+    cfg = load_config()
+    if cfg.get("store_backend") != "influx":
+        sys.exit("migrate-sqlite copies into InfluxDB: set store_backend to "
+                 "influx (config.json or GATEWAY_STORE_BACKEND) first")
+    print(json.dumps(migrate(cfg, args.source, dry_run=args.dry_run), indent=2))
 
 
 def cmd_tool(args) -> None:
@@ -233,7 +258,19 @@ def main() -> None:
     s.add_argument("--keep-raw-s", type=int, default=7 * 86400)
     s.set_defaults(fn=cmd_downsample)
 
-    sub.add_parser("smoke").set_defaults(fn=cmd_smoke)
+    s = sub.add_parser("smoke")
+    s.add_argument("--backend", choices=["sqlite", "influx"], default="sqlite",
+                   help="influx: test against the configured InfluxDB, in a "
+                        "throwaway database")
+    s.set_defaults(fn=cmd_smoke)
+
+    s = sub.add_parser("migrate-sqlite",
+                       help="copy an existing SQLite gateway.db into InfluxDB")
+    s.add_argument("--source", default=None,
+                   help="SQLite file to read (default: db_path from config)")
+    s.add_argument("--dry-run", action="store_true",
+                   help="count what would be copied, write nothing")
+    s.set_defaults(fn=cmd_migrate_sqlite)
 
     s = sub.add_parser("relay", help="print the relay command frame (type 18) to advertise from nRF Connect")
     s.add_argument("state", choices=["on", "off"])
@@ -247,7 +284,14 @@ def main() -> None:
     s.set_defaults(fn=cmd_tool)
 
     args = p.parse_args()
-    args.fn(args)
+    # docker stop sends SIGTERM; exit through the normal path so queued
+    # InfluxDB writes are flushed instead of lost
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    from .store.influx import InfluxUnavailable
+    try:
+        args.fn(args)
+    except InfluxUnavailable as exc:
+        sys.exit(f"[gateway] {exc}")
 
 
 if __name__ == "__main__":

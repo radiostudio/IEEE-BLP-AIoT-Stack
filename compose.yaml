@@ -1,0 +1,81 @@
+# AIoT gateway stack for a Linux gateway box (first target: Arduino Uno Q).
+#
+#   cp .env.example .env        # once; edit settings there
+#   docker compose up -d --build
+#   docker compose logs -f gateway
+#
+# Linux only: the gateway reaches the host's Bluetooth through BlueZ over the
+# host D-Bus socket. Docker Desktop on Windows/macOS cannot do that.
+# Details: gateway/README.md, section "Docker (Uno Q / Linux)".
+
+name: aiot-blp
+
+x-gateway-env: &gateway-env
+  GATEWAY_STORE_BACKEND: ${GATEWAY_STORE_BACKEND:-influx}
+  INFLUX_URL: http://influxdb:8086
+  INFLUX_DB: ${INFLUX_DB:-aiot_blp}
+  INFLUX_RAW_RETENTION: ${INFLUX_RAW_RETENTION:-7d}
+  INFLUX_ROLLUP_PERIOD: ${INFLUX_ROLLUP_PERIOD:-5m}
+  INFLUX_ROLLUP_RETENTION: ${INFLUX_ROLLUP_RETENTION:-52w}
+  GATEWAY_KIT_ID: ${GATEWAY_KIT_ID:-}
+  GATEWAY_BLE_ADAPTER: ${GATEWAY_BLE_ADAPTER:-}
+  # approved rules and the capability token live next to the SQLite files
+  GATEWAY_RULES_DIR: /app/gateway/data/rules.d
+
+services:
+  influxdb:
+    image: influxdb:1.13.1
+    restart: unless-stopped
+    environment:
+      INFLUXDB_REPORTING_DISABLED: "true"
+      INFLUXDB_HTTP_LOG_ENABLED: "false"
+    volumes:
+      - influxdb-data:/var/lib/influxdb
+    # No published port: only the gateway containers reach it, over the
+    # compose network. To inspect data: docker compose exec influxdb influx
+    healthcheck:
+      test: ["CMD", "influx", "-execute", "SHOW DATABASES"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 10s
+
+  gateway:
+    build: .
+    image: aiot-blp-gateway:local
+    command: ["run"]
+    restart: unless-stopped
+    init: true
+    environment: *gateway-env
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    ports:
+      - "${DASHBOARD_PORT:-8931}:8931"
+    volumes:
+      # same folder a native run uses: gateway.db / gateway_meta.db / rules.d
+      - ./gateway/data:/app/gateway/data
+      # BlueZ on the host, reached over the system D-Bus
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+    # Docker's default AppArmor profile blocks D-Bus messages to BlueZ on
+    # Debian-based hosts; this lifts AppArmor for this container only.
+    security_opt:
+      - apparmor:unconfined
+
+  mcp:
+    build: .
+    image: aiot-blp-gateway:local
+    command: ["mcp"]
+    restart: unless-stopped
+    init: true
+    environment: *gateway-env
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    ports:
+      - "${MCP_PORT:-8000}:8000"
+    volumes:
+      - ./gateway/data:/app/gateway/data
+
+volumes:
+  influxdb-data:

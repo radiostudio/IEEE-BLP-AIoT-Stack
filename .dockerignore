@@ -1,0 +1,7 @@
+# Only gateway/ and docker/ go into the image.
+*
+!gateway/
+!docker/
+gateway/data/
+**/__pycache__/
+**/*.pyc

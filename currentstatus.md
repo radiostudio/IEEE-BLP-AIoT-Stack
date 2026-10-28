@@ -15,7 +15,7 @@ How to read this: **Verified** means run and passed in this repo's own tests or 
 | Dashboard | Working, served on the network on port 8931 with live history charts |
 | Onboarding scripts (Windows and Linux/macOS) | Working per the recorded fresh-Windows test |
 | Actuation (relay) | Partial. The gateway can build the command frame but cannot transmit it. |
-| Docker image | Not in this repo. See "Release and Docker" below. |
+| Docker stack (Uno Q) | In this repo (`compose.yaml`, unreleased). Not verified on the Uno Q yet. |
 
 ---
 
@@ -123,7 +123,6 @@ Onboarding: `bootstrap.ps1` / `bootstrap.sh` fetch the code and run `setup`. A f
 ## Not in this repository
 
 - **Sensor firmware** for individual nodes (for example `IEEE-BLP-LUX-SENSOR`, the SCD41/CO2 firmware, `IEEE-BLP-RelayActuator`) lives in separate repos. `firmware/` here holds only `sim-firmware` and `rehearsal_advertiser`.
-- **Docker packaging.** There is no Dockerfile or compose file here.
 
 ---
 

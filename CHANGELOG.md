@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **InfluxDB 1.x storage backend (hybrid), now the default.** Readings and
+  annotations go to InfluxDB (database `aiot_blp`); sensor inventory and
+  experiments stay in SQLite, in `gateway/data/gateway_meta.db`. Raw readings
+  are kept for a configurable retention (default `7d`) and rolled up by an
+  InfluxDB continuous query into configurable buckets (default `5m`,
+  mean/min/max/count) kept for a configurable time (default `52w`); queries
+  older than the raw retention read the rollups. Standard library only.
+  `gateway/store/influx.py`, `gateway/store/__init__.py` (`open_store`).
+- `migrate-sqlite` command: copies an existing SQLite `gateway.db` into
+  InfluxDB and `gateway_meta.db`; `--dry-run`; safe to re-run.
+  `gateway/store/migrate.py`.
+- `smoke --backend influx`: the self-test against the configured InfluxDB, in
+  a throwaway database.
+- **Docker stack for the Uno Q / Linux:** `Dockerfile`, `compose.yaml`
+  (`influxdb:1.13.1`, `gateway` on 8931, `mcp` on 8000),
+  `docker/entrypoint.sh`, `.dockerignore`, `.env.example`. Built on the board.
+  Bluetooth through the host D-Bus socket. See `gateway/README.md`, "Docker".
+- Environment variables override `config.json` in memory (`GATEWAY_*`,
+  `INFLUX_*`); the effective store is printed at startup.
+
+### Changed
+- **Default `store_backend` is `influx`.** A native run without InfluxDB stops
+  with "InfluxDB not reachable"; set `"store_backend": "sqlite"` in
+  `gateway/config.json` for the previous behaviour, which is unchanged.
+  `smoke` still defaults to SQLite, so the onboarding scripts are unaffected.
+- `downsample` does nothing on the InfluxDB backend (InfluxDB rolls up itself).
+- `run` and `simulate` flush queued writes on Ctrl+C and on SIGTERM
+  (`docker stop`).
+
 ## v0.1.1 (2026-10-26)
 
 ### Changed

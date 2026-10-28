@@ -1,8 +1,19 @@
 {
   "kit_id": null,
   "company_id": 65535,
+  "store_backend": "influx",
   "db_path": "data/gateway.db",
   "dashboard_port": 8931,
   "downsample_period_s": 300,
-  "ble_adapter": null
+  "ble_adapter": null,
+  "influx": {
+    "url": "http://localhost:8086",
+    "database": "aiot_blp",
+    "username": null,
+    "password": null,
+    "raw_retention": "7d",
+    "rollup_period": "5m",
+    "rollup_retention": "52w",
+    "meta_db_path": "data/gateway_meta.db"
+  }
 }

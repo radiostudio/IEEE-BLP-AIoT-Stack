@@ -2,15 +2,19 @@
 
 No hardware, no network, no MCP transport: exercises the same code paths the
 live gateway uses. Run with: python -m gateway smoke
+
+`python -m gateway smoke --backend influx` runs the same checks against the
+InfluxDB in the config, in a throwaway database that is dropped afterwards.
 """
 
 from __future__ import annotations
 
+import os
 import tempfile
 import time
 from pathlib import Path
 
-from ..core import build_manufacturer_data, parse_manufacturer_data
+from ..core import build_manufacturer_data, load_config, parse_manufacturer_data
 from ..decoder.registry import CardRegistry
 from ..mcp_server.context import GatewayContext
 from ..mcp_server.tools.annotate import annotate
@@ -29,7 +33,20 @@ from ..store.db import Store
 PASS = "  ok:"
 
 
-def main() -> int:
+def _open_store(backend: str, tmp: Path):
+    if backend == "sqlite":
+        return Store(tmp / "smoke.db")
+    from ..store.influx import InfluxStore
+    ix = load_config()["influx"]
+    return InfluxStore(
+        url=ix["url"], database=f"{ix['database']}_smoke_{os.getpid()}",
+        meta_db_path=tmp / "smoke_meta.db",
+        username=ix.get("username"), password=ix.get("password"),
+        raw_retention=ix["raw_retention"], rollup_period=ix["rollup_period"],
+        rollup_retention=ix["rollup_retention"])
+
+
+def main(backend: str = "sqlite") -> int:
     failures = []
 
     def check(name: str, cond: bool, detail: str = ""):
@@ -41,7 +58,8 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
-        store = Store(tmp / "smoke.db")
+        store = _open_store(backend, tmp)
+        print(f"  store: {store.describe()}")
         registry = CardRegistry()
         expected_cards = len(list(registry.cards_dir.glob("*.json")))
         check(f"cards loaded ({expected_cards} expected)",
@@ -134,12 +152,17 @@ def main() -> int:
         src.inject_fault(1, "stuck")
         for _ in range(3):
             src.tick_once(pipe.on_frame)
+            # distinct tick_ms per frame, as on real nodes: InfluxDB keeps
+            # one point per sensor and timestamp
+            time.sleep(0.02)
         pts = query_timeseries(ctx, "1:1", "temperature_c",
                                time.time() - 600, time.time())["points"]
         stuck_tail = {round(p["value"], 2) for p in pts[-3:]}
         check("stuck fault produces frozen values", len(stuck_tail) == 1,
               str(stuck_tail))
 
+        if backend == "influx":
+            store.query(f'DROP DATABASE "{store.database}"', write=True)
         store.close()
 
     print()

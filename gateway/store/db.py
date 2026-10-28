@@ -80,6 +80,9 @@ class Store:
         with self._lock:
             self._conn.close()
 
+    def describe(self) -> str:
+        return f"sqlite ({self.db_path})"
+
     # -- ingest ------------------------------------------------------------
 
     def upsert_sensor(self, uid: str, kit_id: int, type_id: int, schema: int,

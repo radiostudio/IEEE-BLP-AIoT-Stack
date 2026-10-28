@@ -15,6 +15,7 @@ BLE Manufacturer Specific Data layout (after the 2-byte company ID):
 from __future__ import annotations
 
 import json
+import os
 import struct
 import time
 from dataclasses import dataclass, field
@@ -30,7 +31,11 @@ STATUS_FAULT_INJECTED = 0x04
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 CARDS_DIR = PACKAGE_DIR / "cards"
-RULES_DIR = PACKAGE_DIR / "rules" / "rules.d"
+# The container keeps approved rules (and the capability token beside them)
+# under gateway/data/, which is mounted from the host, so an image rebuild
+# never loses them. Native runs keep the in-tree location.
+RULES_DIR = Path(os.environ.get("GATEWAY_RULES_DIR")
+                 or PACKAGE_DIR / "rules" / "rules.d")
 DEFAULT_CONFIG = PACKAGE_DIR / "config.json"
 
 
@@ -96,15 +101,58 @@ def build_relay_command(kit_id: int, on: bool, seq: int, tick_ms: int,
         status=STATUS_SENSOR_OK, payload=bytes([1 if on else 0])))
 
 
+_DEFAULT_CONFIG = {
+    "kit_id": None,
+    "company_id": COMPANY_ID,
+    "store_backend": "influx",
+    "db_path": "data/gateway.db",
+    "dashboard_port": 8931,
+    "downsample_period_s": 300,
+    "ble_adapter": None,
+    "influx": {
+        "url": "http://localhost:8086",
+        "database": "aiot_blp",
+        "username": None,
+        "password": None,
+        "raw_retention": "7d",
+        "rollup_period": "5m",
+        "rollup_retention": "52w",
+        "meta_db_path": "data/gateway_meta.db",
+    },
+}
+
+# Environment variables override config.json in memory only; the file is
+# never rewritten. Docker Compose sets these from .env.
+_ENV_TOP = {
+    "GATEWAY_STORE_BACKEND": ("store_backend", str),
+    "GATEWAY_KIT_ID": ("kit_id", int),
+    "GATEWAY_BLE_ADAPTER": ("ble_adapter", str),
+}
+_ENV_INFLUX = {
+    "INFLUX_URL": "url",
+    "INFLUX_DB": "database",
+    "INFLUX_USER": "username",
+    "INFLUX_PASSWORD": "password",
+    "INFLUX_RAW_RETENTION": "raw_retention",
+    "INFLUX_ROLLUP_PERIOD": "rollup_period",
+    "INFLUX_ROLLUP_RETENTION": "rollup_retention",
+    "INFLUX_META_DB_PATH": "meta_db_path",
+}
+
+
 def load_config(path: str | Path | None = None) -> dict:
+    """config.json over built-in defaults, then environment overrides."""
+    cfg = json.loads(json.dumps(_DEFAULT_CONFIG))  # deep copy
     p = Path(path) if path else DEFAULT_CONFIG
     if p.exists():
         with open(p, encoding="utf-8") as fh:
-            return json.load(fh)
-    return {
-        "kit_id": None,
-        "company_id": COMPANY_ID,
-        "db_path": str(PACKAGE_DIR / "data" / "gateway.db"),
-        "dashboard_port": 8931,
-        "downsample_period_s": 300,
-    }
+            doc = json.load(fh)
+        cfg["influx"].update(doc.pop("influx", {}) or {})
+        cfg.update(doc)
+    for var, (key, conv) in _ENV_TOP.items():
+        if os.environ.get(var):   # an empty value in .env means "not set"
+            cfg[key] = conv(os.environ[var])
+    for var, key in _ENV_INFLUX.items():
+        if os.environ.get(var):
+            cfg["influx"][key] = os.environ[var]
+    return cfg

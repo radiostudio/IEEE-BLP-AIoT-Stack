@@ -10,14 +10,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core import PACKAGE_DIR, RULES_DIR, load_config
+from ..core import RULES_DIR, load_config
 from ..decoder.registry import CardRegistry
+from ..store import open_store
 from ..store.db import Store
 
 
 @dataclass
 class GatewayContext:
-    store: Store
+    store: Store  # or store.influx.InfluxStore: same methods
     registry: CardRegistry
     rules_dir: Path = RULES_DIR
     capability_token_file: Path = RULES_DIR.parent / ".capability_token"
@@ -25,7 +26,4 @@ class GatewayContext:
     @classmethod
     def from_config(cls, config: dict | None = None) -> "GatewayContext":
         cfg = config or load_config()
-        db_path = Path(cfg["db_path"])
-        if not db_path.is_absolute():
-            db_path = PACKAGE_DIR / db_path
-        return cls(store=Store(db_path), registry=CardRegistry())
+        return cls(store=open_store(cfg), registry=CardRegistry())
