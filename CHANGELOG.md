@@ -40,7 +40,7 @@
   and a locked "AIoT sensors" dashboard (Source raw/rollup, Sensor and Field
   dropdowns, one chart per field, journal notes as markers, last frame per
   sensor). See `gateway/README.md`, "Grafana".
-- **Analysis libraries in the Docker image:** pandas, polars, cbor2,
+- **Analysis libraries in the Docker image:** pandas, polars, pyarrow, cbor2,
   matplotlib (`MPLBACKEND=Agg`), plotly, `influxdb` and `influxdb-client`,
   listed in `gateway/requirements-docker.txt`. The native setup is unchanged.
 

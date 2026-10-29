@@ -246,7 +246,7 @@ Grafana itself.
 
 ### Analysis libraries in the image
 
-The image also has pandas, polars, cbor2, matplotlib, plotly, `influxdb`
+The image also has pandas, polars, pyarrow, cbor2, matplotlib, plotly, `influxdb`
 (InfluxQL client) and `influxdb-client`
 (`gateway/requirements-docker.txt`). The gateway does not use them; they are
 for your own scripts. Put a script in `gateway/data/` (mounted into the
@@ -264,8 +264,8 @@ docker compose exec gateway python /app/gateway/data/my_script.py
   not installed.
 - `influxdb-client` talks to InfluxDB 1.x through its compatibility API:
   writes and InfluxQL work; Flux queries do not (Flux is off in InfluxDB).
-- `polars.from_pandas()` needs `pyarrow` (not installed) for text columns;
-  build the polars frame from the query rows instead.
+- pyarrow lets polars and pandas convert to each other
+  (`polars.from_pandas()`, `.to_pandas()`) and read and write Parquet files.
 
 ### Day-to-day
 

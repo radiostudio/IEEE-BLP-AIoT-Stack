@@ -3,6 +3,7 @@
 -r requirements.txt
 pandas==3.1.0
 polars==2.1.0
+pyarrow==26.0.0   # pandas <-> polars conversion, Parquet files
 cbor2==6.1.5
 matplotlib==3.11.2
 plotly==7.1.0
