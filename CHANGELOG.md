@@ -22,12 +22,14 @@
   Bluetooth through the host D-Bus socket. See `gateway/README.md`, "Docker".
 - Environment variables override `config.json` in memory (`GATEWAY_*`,
   `INFLUX_*`); the effective store is printed at startup.
-- **Dashboard: Live and History tabs.** Live keeps the sensor table and
-  journal; it now updates values in place instead of rebuilding the table
-  every 5 s. History has 1 h / 6 h / 24 h / 7 d windows with the point spacing
-  scaled to the window (10 s to 30 min), charts grouped per sensor with units,
-  axes, mean/min/max, a min/max band, journal notes on the timeline, offline
-  gaps, a hover readout, a sensor filter and full-width expand.
+- **Dashboard: Live and History tabs.** Live keeps the sensor table (the
+  journal list under it is removed); it now updates values in place instead
+  of rebuilding the table every 5 s. History has 1 h / 12 h / 24 h / 7 d
+  windows with the point spacing scaled to the window (10 s to 30 min) and
+  one grid of charts in sensor order; each card shows its sensor's status,
+  part and delivery, plus units, axes, mean/min/max, a min/max band, journal
+  notes on the timeline, offline gaps and a hover readout. Sensor filter and
+  full-width expand.
 - Dashboard API: `/api/card/<uid>` (part and units), `agg=band` on
   `/api/series` (mean, min and max per bucket in one request), `?since=` on
   `/api/annotations`. `agg="band"` works on both store backends.

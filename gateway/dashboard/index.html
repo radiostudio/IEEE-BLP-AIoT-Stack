@@ -25,7 +25,6 @@
   th { background: var(--blue); color: #fff; }
   .bad { color: var(--bad); font-weight: 600; }
   .ok { color: var(--ok); }
-  #ann { margin-top: 1.2rem; font-size: .85rem; color: var(--mute); }
   .stale { opacity: .55; }
 
   /* history */
@@ -39,18 +38,23 @@
   .chk { display: inline-flex; gap: .35rem; align-items: center; color: var(--ink) !important; }
   #meta { margin-left: auto; color: var(--mute); font-size: .78rem; }
 
-  .group { margin-top: 1.3rem; }
-  .ghd { display: flex; align-items: center; gap: .6rem; margin-bottom: .5rem; font-size: .9rem; flex-wrap: wrap; }
-  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: .8rem; margin-top: 1rem; }
+  .card { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: .55rem .75rem .5rem; min-width: 0; }
+  .card.wide { grid-column: 1 / -1; }
+  .card.fault { border-color: #e6b3b3; }
+  /* sensor line at the top of each card */
+  .sens { display: flex; align-items: center; gap: .45rem; font-size: .78rem; padding-bottom: .4rem; margin-bottom: .4rem; border-bottom: 1px solid #f0f0f0; white-space: nowrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex: none; }
   .dot.bad { background: var(--bad); }
   .dot.old { background: #b9b9b9; }
-  .ghd .uid { color: var(--blue); font-weight: 700; }
-  .pill { font-size: .72rem; color: var(--mute); border: 1px solid var(--line); border-radius: 99px; padding: .05rem .5rem; background: #fff; }
+  .sens .uid { color: var(--blue); font-weight: 700; }
+  /* long part names are cut with "…"; the full name is in the tooltip */
+  .sens .part { color: var(--mute); overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+  .pill { font-size: .7rem; color: var(--mute); border: 1px solid var(--line); border-radius: 99px; padding: 0 .45rem; background: #fff; }
+  .pill.ok { color: var(--ok); border-color: #b7dcc3; }
   .pill.bad { color: var(--bad); border-color: #e6b3b3; }
-
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: .8rem; }
-  .card { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: .6rem .75rem .5rem; min-width: 0; }
-  .card.wide { grid-column: 1 / -1; }
+  .sens .pill { flex: none; }
+  .sens .dlv { margin-left: auto; }
   .card .hd { display: flex; align-items: baseline; gap: .5rem; }
   .card .nm { font-weight: 600; font-size: .88rem; }
   .card .unit { color: var(--mute); font-size: .78rem; }
@@ -81,20 +85,19 @@
   <div class="tblbox"><table id="tbl"><thead>
   <tr><th>UID</th><th>Part</th><th>Latest values</th><th>Age</th><th>Status</th><th>Delivery</th></tr>
   </thead><tbody></tbody></table></div>
-  <div id="ann"></div>
 </section>
 
 <section id="tab-history" hidden>
   <div class="toolbar">
     <span class="seg" role="group" aria-label="Time window">
-      <button data-win="3600">1 h</button><button data-win="21600" class="on">6 h</button><button data-win="86400">24 h</button><button data-win="604800">7 d</button>
+      <button data-win="3600">1 h</button><button data-win="43200" class="on">12 h</button><button data-win="86400">24 h</button><button data-win="604800">7 d</button>
     </span>
     <label>Sensor <select id="sensor"><option value="">All sensors</option></select></label>
     <label class="chk"><input type="checkbox" id="band" checked> Min/max band</label>
     <label class="chk"><input type="checkbox" id="notes" checked> Journal notes</label>
     <span id="meta"></span>
   </div>
-  <div id="groups"></div>
+  <div id="grid" class="grid"></div>
 </section>
 
 <script>
@@ -133,7 +136,6 @@ window.addEventListener('hashchange', showTab);
 
 // rows[uid] = {tr, part, vals, age, status, dlv}: built once, then only their text changes
 const rows = {};
-let lastAnn = null;
 let refreshing = false;
 
 function ensureRow(uid) {
@@ -166,7 +168,7 @@ async function refresh() {
       setClass(row.status, s.sensor_ok ? 'ok' : 'bad');
       setText(row.status, statusText(s));
       setText(row.dlv, (s.delivery_ratio * 100).toFixed(1) + '%');
-      updateGroupHead(s);
+      updateSensorLines(s);
       const latest = latests[i];
       if (!latest) return;             // request failed: keep the last values
       const vals = latest.fields
@@ -188,10 +190,6 @@ async function refresh() {
     const on = document.getElementById('online');
     setText(on, `${online} of ${sensors.length} online`);
     setClass(on, online === sensors.length ? 'online' : 'online warn');
-    const ann = await getJSON('/api/annotations');
-    const annHtml = '<b>Journal (24 h):</b><br>' +
-      ann.slice(-12).map(a => `${new Date(a.ts * 1000).toLocaleTimeString()} [${esc(a.author ?? '?')}] ${esc(a.note)}`).join('<br>');
-    if (annHtml !== lastAnn) { document.getElementById('ann').innerHTML = annHtml; lastAnn = annHtml; }
     hist.updated = Date.now();
     updateMeta();
   } finally {
@@ -202,18 +200,18 @@ async function refresh() {
 // ---------------------------------------------------------------- history
 
 const hist = {
-  win: 21600,
+  win: 43200,
   loaded: false,
   loading: false,
   token: 0,            // bumps on every load, so a slow older load is discarded
   updated: 0,
-  groups: {},          // uid -> {el, dot, part, status, dlv, grid}
+  sens: {},            // uid -> [{card, dot, status, dlv}], one per chart of that sensor
   charts: {},          // uid|field -> chart
   notes: [],
   cards: {},           // uid -> {part, units}
 };
 
-// About 360 points per chart whatever the window: 1 h -> 10 s, 6 h -> 1 min,
+// About 360 points per chart whatever the window: 1 h -> 10 s, 12 h -> 2 min,
 // 24 h -> 5 min, 7 d -> 30 min.
 const BUCKETS = [10, 30, 60, 120, 300, 600, 1800, 3600];
 const bucketFor = win => BUCKETS.find(b => b >= win / 360) ?? 3600;
@@ -226,35 +224,30 @@ function updateMeta() {
     `1 point per ${durText(bucketFor(hist.win))} · updated ${ago}`);
 }
 
-function updateGroupHead(s) {
-  const g = hist.groups[s.uid];
-  if (!g) return;
-  setClass(g.dot, 'dot' + (!s.sensor_ok ? ' bad' : s.last_seen_s_ago > 60 ? ' old' : ''));
-  setText(g.status, statusText(s));
-  setClass(g.status, s.sensor_ok ? 'pill' : 'pill bad');
-  setText(g.dlv, 'delivery ' + (s.delivery_ratio * 100).toFixed(1) + '%');
+function updateSensorLines(s) {
+  for (const l of hist.sens[s.uid] || []) {
+    setClass(l.dot, 'dot' + (!s.sensor_ok ? ' bad' : s.last_seen_s_ago > 60 ? ' old' : ''));
+    setText(l.status, statusText(s));
+    setClass(l.status, s.sensor_ok ? 'pill ok' : 'pill bad');
+    setText(l.dlv, 'delivery ' + (s.delivery_ratio * 100).toFixed(1) + '%');
+    l.card.classList.toggle('fault', !s.sensor_ok);
+  }
 }
 
-function makeGroup(s) {
-  const el = document.createElement('section');
-  el.className = 'group';
-  el.innerHTML = '<div class="ghd"><span class="dot"></span><span class="uid"></span><span class="part"></span>' +
-    '<span class="pill"></span><span class="pill"></span></div><div class="grid"></div>';
-  el.querySelector('.uid').textContent = s.uid;
-  el.querySelector('.part').textContent = s.part ?? '';
-  const pills = el.querySelectorAll('.pill');
-  const g = { el, dot: el.querySelector('.dot'), status: pills[0], dlv: pills[1], grid: el.querySelector('.grid') };
-  hist.groups[s.uid] = g;
-  updateGroupHead(s);
-  return g;
-}
-
-function makeChart(uid, field, unit, grid) {
+function makeChart(s, field, unit, grid) {
+  const uid = s.uid;
   const card = document.createElement('div');
   card.className = 'card';
-  card.innerHTML = '<div class="hd"><span class="nm"></span><span class="unit"></span>' +
+  card.innerHTML = '<div class="sens"><span class="dot"></span><span class="uid"></span><span class="part"></span>' +
+    '<span class="pill"></span><span class="pill dlv"></span></div>' +
+    '<div class="hd"><span class="nm"></span><span class="unit"></span>' +
     '<button class="expand" type="button">Expand</button><span class="cur">-</span></div>' +
     '<div class="stats"></div>';
+  card.querySelector('.uid').textContent = uid;
+  card.querySelector('.part').textContent = s.part ?? '';
+  card.querySelector('.part').title = s.part ?? '';
+  (hist.sens[uid] ||= []).push({ card, dot: card.querySelector('.dot'),
+    status: card.querySelector('.pill'), dlv: card.querySelector('.dlv') });
   card.querySelector('.nm').textContent = field;
   card.querySelector('.unit').textContent = unit ?? '';
   const svg = document.createElementNS(SVG_NS, 'svg');
@@ -306,9 +299,9 @@ async function loadHistory() {
     }));
     if (token !== hist.token) return;   // window changed while loading
 
-    const box = document.getElementById('groups');
+    const box = document.getElementById('grid');
     box.textContent = '';
-    hist.groups = {};
+    hist.sens = {};
     const wide = new Set(Object.values(hist.charts).filter(c => c.wide).map(c => c.uid + '|' + c.field));
     hist.charts = {};
     hist.notes = notes;
@@ -321,16 +314,15 @@ async function loadHistory() {
       opt.value = s.uid;
       opt.textContent = `${s.uid} ${s.part ?? ''}`;
       sel.appendChild(opt);
-      const g = makeGroup(s);
-      box.appendChild(g.el);
       const units = (hist.cards[s.uid] || {}).units || {};
       for (const f of fields) {
-        const c = makeChart(s.uid, f, UNIT[units[f]] ?? units[f], g.grid);
+        const c = makeChart(s, f, UNIT[units[f]] ?? units[f], box);
         c.pts = series[f];
         const lf = latest.fields[f];
         setCur(c, lf.value);
         if (wide.has(s.uid + '|' + f)) c.el.btn.click();
       }
+      updateSensorLines(s);
     }
     if ([...sel.options].some(o => o.value === pick)) sel.value = pick;
     applyFilter();
@@ -375,7 +367,7 @@ function drawAll() { if (tab === 'history') Object.values(hist.charts).forEach(d
 
 function applyFilter() {
   const pick = document.getElementById('sensor').value;
-  for (const [uid, g] of Object.entries(hist.groups)) g.el.hidden = !!pick && uid !== pick;
+  for (const c of Object.values(hist.charts)) c.el.card.hidden = !!pick && c.uid !== pick;
   drawAll();
 }
 
