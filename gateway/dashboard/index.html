@@ -165,19 +165,22 @@ async function refresh() {
       if (s.last_seen_s_ago < 60) online++;
       const row = ensureRow(s.uid);
       setText(row.part, s.part ?? '');
-      setClass(row.status, s.sensor_ok ? 'ok' : 'bad');
-      setText(row.status, statusText(s));
-      setText(row.dlv, (s.delivery_ratio * 100).toFixed(1) + '%');
       updateSensorLines(s);
       const latest = latests[i];
       if (!latest) return;             // request failed: keep the last values
-      const vals = latest.fields
+      // no stored readings (never stored, or expired with the raw retention):
+      // values, age, status and delivery show "-" and the row is greyed
+      const has = !!latest.fields && Object.keys(latest.fields).length > 0;
+      const vals = has
         ? Object.entries(latest.fields).map(([k, v]) => `${k}=${fmt(k, v.value)}`).join('  ')
         : '(none)';
-      const age = latest.fields ? Math.min(...Object.values(latest.fields).map(f => f.age_s)) : null;
+      const age = has ? Math.min(...Object.values(latest.fields).map(f => f.age_s)) : null;
       setText(row.vals, vals);
       setText(row.age, age === null ? '-' : age.toFixed(0) + 's');
-      setClass(row.tr, age !== null && age > 60 ? 'stale' : '');
+      setClass(row.status, has ? (s.sensor_ok ? 'ok' : 'bad') : '');
+      setText(row.status, has ? statusText(s) : '-');
+      setText(row.dlv, has ? (s.delivery_ratio * 100).toFixed(1) + '%' : '-');
+      setClass(row.tr, !has || age > 60 ? 'stale' : '');
       if (latest.fields) {
         for (const [field, f] of Object.entries(latest.fields)) {
           addLive(s.uid, field, now - (f.age_s || 0), Number(f.value));
