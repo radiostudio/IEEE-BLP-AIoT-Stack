@@ -1,0 +1,302 @@
+{
+  "uid": "aiot-sensors",
+  "title": "AIoT sensors",
+  "description": "Readings stored by the AIoT gateway in InfluxDB. Provisioned from docker/grafana/dashboards in the repository; use Save as to change it.",
+  "tags": [
+    "aiot"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "10s",
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "source",
+        "label": "Source",
+        "type": "custom",
+        "query": "raw,rollup",
+        "description": "raw: every frame, kept for the raw retention (default 7 d). rollup: mean per rollup period (default 5 min), kept for the rollup retention (default 52 w); use it for older data.",
+        "multi": false,
+        "includeAll": false,
+        "current": {
+          "selected": true,
+          "text": "raw",
+          "value": "raw"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "raw",
+            "value": "raw"
+          },
+          {
+            "selected": false,
+            "text": "rollup",
+            "value": "rollup"
+          }
+        ]
+      },
+      {
+        "name": "sensor",
+        "label": "Sensor",
+        "type": "query",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "aiot-influx"
+        },
+        "query": "SHOW TAG VALUES WITH KEY = \"sensor_uid\"",
+        "definition": "SHOW TAG VALUES WITH KEY = \"sensor_uid\"",
+        "regex": "",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "sort": 7,
+        "description": "Sensor UID (kit:type)",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": []
+      },
+      {
+        "name": "field",
+        "label": "Field",
+        "type": "query",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "aiot-influx"
+        },
+        "query": "SHOW FIELD KEYS FROM \"raw\".\"readings\"",
+        "definition": "SHOW FIELD KEYS FROM \"raw\".\"readings\"",
+        "regex": "/^(?!(?:seq|status|rx_time)$).*/",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "sort": 1,
+        "description": "One chart per selected field",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": []
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Journal",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "aiot-influx"
+        },
+        "enable": true,
+        "iconColor": "orange",
+        "target": {
+          "refId": "Journal",
+          "rawQuery": true,
+          "resultFormat": "table",
+          "query": "SELECT \"note\", \"sensor_uid\" FROM \"autogen\".\"annotations\" WHERE (\"sensor_uid\" =~ /^$sensor$/ OR \"sensor_uid\" = '') AND $timeFilter"
+        },
+        "mappings": {
+          "text": {
+            "source": "field",
+            "value": "note"
+          },
+          "tags": {
+            "source": "field",
+            "value": "sensor_uid"
+          }
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "$field",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "aiot-influx"
+      },
+      "repeat": "field",
+      "repeatDirection": "h",
+      "maxPerRow": 3,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "interval": "10s",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "aiot-influx"
+          },
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "query": "SELECT mean(/^(mean_)?$field$/) FROM \"$source\"./^readings/ WHERE \"sensor_uid\" =~ /^$sensor$/ AND $timeFilter GROUP BY time($__interval), \"sensor_uid\" fill(none)",
+          "alias": "$tag_sensor_uid"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "insertNulls": 900000
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Last frame per sensor (in the time range)",
+      "description": "Sensors with no frame in the chosen time range are not listed. Sensor health and delivery ratio are on the gateway dashboard (port 8931).",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "aiot-influx"
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 100
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "aiot-influx"
+          },
+          "rawQuery": true,
+          "resultFormat": "table",
+          "query": "SELECT last(\"seq\") FROM \"raw\".\"readings\" WHERE \"sensor_uid\" =~ /^$sensor$/ AND $timeFilter GROUP BY \"sensor_uid\", \"sensor_type_id\""
+        }
+      ],
+      "transformations": [
+        {
+          "id": "convertFieldType",
+          "options": {
+            "conversions": [
+              {
+                "targetField": "sensor_type_id",
+                "destinationType": "number"
+              }
+            ]
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "sensor_type_id"
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "last": true,
+              "sensor_type_id": true
+            },
+            "indexByName": {
+              "sensor_uid": 0,
+              "Time": 1
+            },
+            "renameByName": {
+              "sensor_uid": "Sensor",
+              "Time": "Last frame"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last frame"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    }
+  ]
+}

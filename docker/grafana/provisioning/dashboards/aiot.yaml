@@ -1,0 +1,11 @@
+# Dashboards loaded from docker/grafana/dashboards. Locked: the repository
+# copy always wins. To experiment, use "Save as" in Grafana for your own copy.
+apiVersion: 1
+providers:
+  - name: aiot
+    folder: AIoT
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards

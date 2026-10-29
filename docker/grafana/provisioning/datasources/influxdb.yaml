@@ -1,0 +1,14 @@
+# InfluxDB data source for Grafana, provisioned on every start. Locked: edit
+# this file, not the Grafana UI. $INFLUX_DB comes from compose.yaml.
+apiVersion: 1
+datasources:
+  - name: InfluxDB
+    uid: aiot-influx
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    isDefault: true
+    editable: false
+    jsonData:
+      dbName: $INFLUX_DB
+      httpMode: GET

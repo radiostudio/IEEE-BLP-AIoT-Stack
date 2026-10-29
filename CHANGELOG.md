@@ -33,6 +33,16 @@
 - Dashboard API: `/api/card/<uid>` (part and units), `agg=band` on
   `/api/series` (mean, min and max per bucket in one request), `?since=` on
   `/api/annotations`. `agg="band"` works on both store backends.
+- **Grafana in the Docker stack:** `grafana` service (`grafana/grafana:13.2.5`,
+  port 3000, volume `grafana-data`) wired to the stack's InfluxDB. Viewers
+  need no login; admin password from `GRAFANA_ADMIN_PASSWORD` (default
+  `radiostudio`). Provisioned from `docker/grafana/`: the InfluxDB data source
+  and a locked "AIoT sensors" dashboard (Source raw/rollup, Sensor and Field
+  dropdowns, one chart per field, journal notes as markers, last frame per
+  sensor). See `gateway/README.md`, "Grafana".
+- **Analysis libraries in the Docker image:** pandas, polars, cbor2,
+  matplotlib (`MPLBACKEND=Agg`), plotly, `influxdb` and `influxdb-client`,
+  listed in `gateway/requirements-docker.txt`. The native setup is unchanged.
 
 ### Changed
 - **Default `store_backend` is `influx`.** A native run without InfluxDB stops

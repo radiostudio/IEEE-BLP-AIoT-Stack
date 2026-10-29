@@ -4,6 +4,9 @@
 #   docker compose up -d --build
 #   docker compose logs -f gateway
 #
+# Dashboard on 8931, MCP on 8000, Grafana on 3000 (viewers need no login;
+# admin login from GRAFANA_ADMIN_PASSWORD in .env).
+#
 # Linux only: the gateway reaches the host's Bluetooth through BlueZ over the
 # host D-Bus socket. Docker Desktop on Windows/macOS cannot do that.
 # Details: gateway/README.md, section "Docker (Uno Q / Linux)".
@@ -31,8 +34,9 @@ services:
       INFLUXDB_HTTP_LOG_ENABLED: "false"
     volumes:
       - influxdb-data:/var/lib/influxdb
-    # No published port: only the gateway containers reach it, over the
-    # compose network. To inspect data: docker compose exec influxdb influx
+    # No published port: only the gateway, mcp and grafana containers reach
+    # it, over the compose network. To inspect data:
+    # docker compose exec influxdb influx
     healthcheck:
       test: ["CMD", "influx", "-execute", "SHOW DATABASES"]
       interval: 5s
@@ -77,5 +81,33 @@ services:
     volumes:
       - ./gateway/data:/app/gateway/data
 
+  grafana:
+    image: grafana/grafana:13.2.5
+    restart: unless-stopped
+    environment:
+      INFLUX_DB: ${INFLUX_DB:-aiot_blp}  # read by the provisioned data source
+      GF_SECURITY_ADMIN_USER: admin
+      # only read on Grafana's first start; see gateway/README.md to change it
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-radiostudio}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/aiot_sensors.json
+      # no calls home: works offline at a workshop
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      # data source and the locked "AIoT sensors" dashboard, from the repo
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/etc/grafana/dashboards:ro
+
 volumes:
   influxdb-data:
+  grafana-data:

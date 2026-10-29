@@ -167,13 +167,14 @@ the target, the gateway works there.
 ## Docker (Uno Q / Linux)
 
 `compose.yaml` at the repository root runs the gateway as three containers,
-built on the board itself (the Uno Q is `linux/arm64`):
+built on the board itself (the Uno Q is `linux/arm64`), plus Grafana:
 
 | Service | What it runs | Port |
 |---|---|---|
 | `influxdb` | `influxdb:1.13.1`, data in the `influxdb-data` volume | none published: only the gateway containers reach it |
 | `gateway` | `run`: BLE scan, rules, dashboard | `8931` |
 | `mcp` | `mcp`: MCP server (streamable HTTP, path `/mcp`) | `8000` |
+| `grafana` | `grafana/grafana:13.2.5`, reads InfluxDB; see "Grafana" below | `3000` |
 
 **Linux only.** The `gateway` container uses the host's BlueZ through the
 mounted D-Bus socket. Docker Desktop on Windows and macOS runs containers in a
@@ -197,7 +198,7 @@ VM with no access to the laptop's Bluetooth.
    Expect `[gateway] store: influx (aiot_blp @ http://influxdb:8086) ...`,
    then `BLE scan mode: passive` and sensors coming online.
 5. Dashboard: `http://<uno-q-address>:8931/`. MCP clients:
-   `http://<uno-q-address>:8000/mcp`.
+   `http://<uno-q-address>:8000/mcp`. Grafana: `http://<uno-q-address>:3000/`.
 6. Acceptance test against the real InfluxDB (uses a throwaway database):
    `docker compose run --rm gateway smoke --backend influx`
 
@@ -206,13 +207,65 @@ VM with no access to the laptop's Bluetooth.
 | What | Where on the Uno Q |
 |---|---|
 | Readings, annotations, rollups | InfluxDB, Docker volume `aiot-blp_influxdb-data` |
+| Grafana users, settings, dashboards saved with "Save as" | Docker volume `aiot-blp_grafana-data` |
 | Sensor inventory, experiments | `gateway/data/gateway_meta.db` (repository folder) |
 | SQLite backend database (if `GATEWAY_STORE_BACKEND=sqlite`) | `gateway/data/gateway.db`, the same file a native run uses |
 | Approved rules, capability token | `gateway/data/rules.d/`, `gateway/data/.capability_token` (shipped rules are copied in on first start) |
 
 Files in `gateway/data/` are created by the container as root; use `sudo` to
 delete them. `docker compose down` keeps all data; `docker compose down -v`
-also deletes the InfluxDB volume.
+also deletes the InfluxDB and Grafana volumes.
+
+### Grafana
+
+`http://<uno-q-address>:3000/` opens the **AIoT sensors** dashboard. No
+login is needed to view it; the admin login (user `admin`) is for changing
+Grafana itself.
+
+- **Admin password:** `GRAFANA_ADMIN_PASSWORD` in `.env`, default
+  `radiostudio`. The default is public in this repository, so change it before
+  the first start if the board is on a shared network. Grafana reads it only
+  on its first start; later changes need
+  `docker compose exec grafana grafana cli admin reset-admin-password <new>`.
+- **Dashboard:** one chart per field, one line per sensor (mean per
+  interval), journal notes as orange markers, and a "Last frame per sensor"
+  table. Dropdowns:
+  - **Source**: `raw` (every frame, kept for `INFLUX_RAW_RETENTION`) or
+    `rollup` (mean per `INFLUX_ROLLUP_PERIOD`, kept for
+    `INFLUX_ROLLUP_RETENTION`). Use `rollup` for time ranges older than the
+    raw retention.
+  - **Sensor** and **Field**: filter the charts.
+- **Locked:** the dashboard and the InfluxDB data source come from
+  `docker/grafana/` in this repository and cannot be saved over in Grafana.
+  To experiment, log in as admin and use **Save as**; the copy lives in the
+  `grafana-data` volume. To change the shipped dashboard, edit
+  `docker/grafana/dashboards/aiot_sensors.json` (Grafana reloads it within
+  about 10 s).
+- Units, sensor health and delivery ratio are not in InfluxDB; they stay on
+  the gateway dashboard (port 8931).
+
+### Analysis libraries in the image
+
+The image also has pandas, polars, cbor2, matplotlib, plotly, `influxdb`
+(InfluxQL client) and `influxdb-client`
+(`gateway/requirements-docker.txt`). The gateway does not use them; they are
+for your own scripts. Put a script in `gateway/data/` (mounted into the
+container) and run it:
+
+```
+docker compose exec gateway python /app/gateway/data/my_script.py
+```
+
+- InfluxDB is at `http://influxdb:8086`, database `aiot_blp`, from inside
+  the container.
+- matplotlib uses the `Agg` backend (no screen): save figures with
+  `savefig()` into `/app/gateway/data/`.
+- plotly writes HTML with `write_html()`; PNG export needs `kaleido`, which is
+  not installed.
+- `influxdb-client` talks to InfluxDB 1.x through its compatibility API:
+  writes and InfluxQL work; Flux queries do not (Flux is off in InfluxDB).
+- `polars.from_pandas()` needs `pyarrow` (not installed) for text columns;
+  build the polars frame from the query rows instead.
 
 ### Day-to-day
 
@@ -232,6 +285,9 @@ docker compose exec gateway python -m gateway token
 
 # look at the data
 docker compose exec influxdb influx -database aiot_blp -execute 'SHOW MEASUREMENTS'
+
+# Grafana log (provisioning errors show here)
+docker compose logs grafana
 
 # back up InfluxDB (lands in the container; copy it out with docker compose cp)
 docker compose exec influxdb influxd backup -portable /var/lib/influxdb/backup
