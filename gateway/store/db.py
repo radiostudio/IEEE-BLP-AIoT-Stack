@@ -145,6 +145,17 @@ class Store:
                         GROUP BY bucket ORDER BY bucket""",
                     (bucket_s, bucket_s, sensor_uid, field, start, end))
                 return [{"ts": b, "value": v, "n": n} for b, v, n in cur.fetchall()]
+            if agg == "band":
+                # mean plus min/max per bucket, for charts that shade the spread
+                cur = self._conn.execute(
+                    """SELECT CAST(ts/? AS INTEGER)*? AS bucket, AVG(value),
+                              MIN(value), MAX(value), COUNT(*)
+                       FROM readings
+                       WHERE sensor_uid=? AND field=? AND ts BETWEEN ? AND ?
+                       GROUP BY bucket ORDER BY bucket""",
+                    (bucket_s, bucket_s, sensor_uid, field, start, end))
+                return [{"ts": b, "value": v, "min": lo, "max": hi, "n": n}
+                        for b, v, lo, hi, n in cur.fetchall()]
             cur = self._conn.execute(
                 """SELECT ts, value, status FROM readings
                    WHERE sensor_uid=? AND field=? AND ts BETWEEN ? AND ?

@@ -352,6 +352,13 @@ class InfluxStore:
                  f"{where} GROUP BY time({int(bucket_s)}s) fill(none)")
             return [{"ts": r["time"] / 1e9, "value": r["value"], "n": r["n"]}
                     for r in self._rows(self.query(q)) if r["value"] is not None]
+        if agg == "band":
+            q = (f"SELECT MEAN({f}) AS value, MIN({f}) AS min, MAX({f}) AS max, "
+                 f"COUNT({f}) AS n FROM {src} {where} "
+                 f"GROUP BY time({int(bucket_s)}s) fill(none)")
+            return [{"ts": r["time"] / 1e9, "value": r["value"], "min": r["min"],
+                     "max": r["max"], "n": r["n"]}
+                    for r in self._rows(self.query(q)) if r["value"] is not None]
         q = f"SELECT {f}, status FROM {src} {where}"
         return [{"ts": r["time"] / 1e9, "value": r[field],
                  "status": int(r["status"] or 0)}
@@ -369,6 +376,14 @@ class InfluxStore:
             q = (f"SELECT {fn} AS value, SUM({count_f}) AS n FROM {src} "
                  f"{where} GROUP BY time({bucket}s) fill(none)")
             return [{"ts": r["time"] / 1e9, "value": r["value"], "n": r["n"]}
+                    for r in self._rows(self.query(q)) if r["value"] is not None]
+        if agg == "band":
+            bucket = max(int(bucket_s), self.rollup_period_s)
+            q = (f"SELECT MEAN({mean_f}) AS value, MIN({min_f}) AS min, "
+                 f"MAX({max_f}) AS max, SUM({count_f}) AS n FROM {src} {where} "
+                 f"GROUP BY time({bucket}s) fill(none)")
+            return [{"ts": r["time"] / 1e9, "value": r["value"], "min": r["min"],
+                     "max": r["max"], "n": r["n"]}
                     for r in self._rows(self.query(q)) if r["value"] is not None]
         q = f"SELECT {mean_f} AS value FROM {src} {where}"
         return [{"ts": r["time"] / 1e9, "value": r["value"], "status": None}

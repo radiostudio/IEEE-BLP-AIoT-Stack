@@ -1,5 +1,5 @@
 # Core pipeline, store, rules, dashboard, simulator: standard library only.
 # Optional extras, install what the deployment needs:
 bleak>=0.21        # live BLE scanning (Windows/WinRT, Linux/BlueZ, macOS)
-mcp>=1.2           # MCP server for Claude and other clients
+mcp==1.30.0        # MCP server for Claude and other clients
 # anthropic>=0.40  # only for online mode of the agents orchestrator

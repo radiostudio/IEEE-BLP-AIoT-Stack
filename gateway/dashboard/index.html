@@ -5,173 +5,528 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AIoT Gateway</title>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 1.5rem; background: #fafafa; color: #222; }
-  h1 { font-size: 1.3rem; color: #1b5e8a; }
-  h2 { font-size: 1.05rem; color: #1b5e8a; margin: 1.4rem 0 .6rem; }
+  :root { --blue: #1b5e8a; --ink: #222; --mute: #666; --line: #e2e2e2; --ok: #1a7a3a; --bad: #b02020; --note: #c46b00; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; margin: 1.5rem; background: #fafafa; color: var(--ink); }
+  h1 { font-size: 1.3rem; color: var(--blue); margin: 0; }
+  .hdr { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+  .hdr p { margin: 0; color: var(--mute); font-size: .85rem; }
+  .online { margin-left: auto; color: var(--ok); font-weight: 600; font-size: .9rem; }
+  .online::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; margin-right: 6px; }
+  .online.warn { color: var(--note); }
+  .tabs { display: flex; border-bottom: 2px solid var(--line); margin: 1rem 0; }
+  .tabs a { padding: .5rem 1.1rem; color: var(--mute); text-decoration: none; }
+  .tabs a.on { color: var(--blue); border-bottom: 2px solid var(--blue); margin-bottom: -2px; font-weight: 600; }
+
+  /* live */
+  .tblbox { overflow-x: auto; }
   table { border-collapse: collapse; width: 100%; background: #fff; }
-  th, td { padding: .45rem .7rem; border-bottom: 1px solid #e2e2e2; text-align: left; font-size: .9rem; }
-  th { background: #1b5e8a; color: #fff; }
-  .bad { color: #b02020; font-weight: 600; }
-  .ok { color: #1a7a3a; }
-  #ann { margin-top: 1.2rem; font-size: .85rem; color: #555; }
+  th, td { padding: .45rem .7rem; border-bottom: 1px solid var(--line); text-align: left; font-size: .9rem; }
+  th { background: var(--blue); color: #fff; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .ok { color: var(--ok); }
+  #ann { margin-top: 1.2rem; font-size: .85rem; color: var(--mute); }
   .stale { opacity: .55; }
-  #charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: .8rem; }
-  .card { background: #fff; border: 1px solid #e2e2e2; border-radius: 6px; padding: .55rem .7rem; }
-  .card .hd { display: flex; justify-content: space-between; align-items: baseline; font-size: .85rem; }
-  .card .nm { font-weight: 600; color: #1b5e8a; }
-  .card .cur { font-variant-numeric: tabular-nums; }
-  .card .rng { color: #888; font-size: .72rem; margin-top: .15rem; }
-  .card svg { display: block; width: 100%; height: 70px; margin-top: .25rem; }
-  .controls { margin: .3rem 0 .2rem; font-size: .82rem; color: #555; }
-  .controls select { font-size: .82rem; }
+
+  /* history */
+  .toolbar { display: flex; flex-wrap: wrap; gap: .8rem 1.4rem; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: .6rem .8rem; font-size: .85rem; position: sticky; top: 0; z-index: 2; }
+  .seg { display: inline-flex; border: 1px solid #c9ccd1; border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; background: #fff; padding: .35rem .75rem; font: inherit; color: var(--ink); cursor: pointer; }
+  .seg button + button { border-left: 1px solid #c9ccd1; }
+  .seg button.on { background: var(--blue); color: #fff; }
+  .toolbar label { color: var(--mute); }
+  .toolbar select { font: inherit; padding: .25rem .4rem; border: 1px solid #c9ccd1; border-radius: 6px; background: #fff; max-width: 15rem; }
+  .chk { display: inline-flex; gap: .35rem; align-items: center; color: var(--ink) !important; }
+  #meta { margin-left: auto; color: var(--mute); font-size: .78rem; }
+
+  .group { margin-top: 1.3rem; }
+  .ghd { display: flex; align-items: center; gap: .6rem; margin-bottom: .5rem; font-size: .9rem; flex-wrap: wrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
+  .dot.bad { background: var(--bad); }
+  .dot.old { background: #b9b9b9; }
+  .ghd .uid { color: var(--blue); font-weight: 700; }
+  .pill { font-size: .72rem; color: var(--mute); border: 1px solid var(--line); border-radius: 99px; padding: .05rem .5rem; background: #fff; }
+  .pill.bad { color: var(--bad); border-color: #e6b3b3; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: .8rem; }
+  .card { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: .6rem .75rem .5rem; min-width: 0; }
+  .card.wide { grid-column: 1 / -1; }
+  .card .hd { display: flex; align-items: baseline; gap: .5rem; }
+  .card .nm { font-weight: 600; font-size: .88rem; }
+  .card .unit { color: var(--mute); font-size: .78rem; }
+  .card .cur { margin-left: auto; font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .card .cur small { font-size: .72rem; font-weight: 400; color: var(--mute); }
+  .card .expand { border: 1px solid var(--line); background: #fff; border-radius: 5px; padding: .1rem .45rem; font-size: .72rem; color: var(--mute); cursor: pointer; }
+  .card .stats { display: flex; gap: .9rem; font-size: .74rem; color: var(--mute); margin-top: .15rem; font-variant-numeric: tabular-nums; flex-wrap: wrap; }
+  .card .stats b { color: var(--ink); font-weight: 600; }
+  .card svg { display: block; width: 100%; margin-top: .3rem; }
+  .tip { position: absolute; pointer-events: none; background: rgba(34,34,34,.92); color: #fff; font-size: .74rem; border-radius: 5px; padding: .3rem .5rem; white-space: nowrap; z-index: 1; font-variant-numeric: tabular-nums; }
+  .tip b { font-size: .8rem; }
+  .empty { color: var(--mute); font-size: .85rem; margin-top: 1rem; }
 </style>
 </head>
 <body>
-<h1>AIoT Gateway: live sensors</h1>
-<p>Thin view for the bench. The real product surface is the MCP server; ask the model, not this page.</p>
-
-<table id="tbl"><thead>
-<tr><th>UID</th><th>Part</th><th>Latest values</th><th>Age</th><th>Status</th><th>Delivery</th></tr>
-</thead><tbody></tbody></table>
-
-<div class="controls">
-  History window:
-  <select id="win">
-    <option value="3600">last 1 h</option>
-    <option value="21600" selected>last 6 h</option>
-    <option value="86400">last 24 h</option>
-    <option value="604800">last 7 d</option>
-  </select>
-  <span id="chartnote"></span>
+<div class="hdr">
+  <h1>AIoT Gateway</h1>
+  <p>Thin view for the bench. The real product surface is the MCP server; ask the model, not this page.</p>
+  <span id="online" class="online">-</span>
 </div>
-<h2>History (from the gateway store, backfilled on open)</h2>
-<div id="charts"></div>
 
-<div id="ann"></div>
+<nav class="tabs">
+  <a href="#live" data-tab="live">Live</a>
+  <a href="#history" data-tab="history">History</a>
+</nav>
+
+<section id="tab-live">
+  <div class="tblbox"><table id="tbl"><thead>
+  <tr><th>UID</th><th>Part</th><th>Latest values</th><th>Age</th><th>Status</th><th>Delivery</th></tr>
+  </thead><tbody></tbody></table></div>
+  <div id="ann"></div>
+</section>
+
+<section id="tab-history" hidden>
+  <div class="toolbar">
+    <span class="seg" role="group" aria-label="Time window">
+      <button data-win="3600">1 h</button><button data-win="21600" class="on">6 h</button><button data-win="86400">24 h</button><button data-win="604800">7 d</button>
+    </span>
+    <label>Sensor <select id="sensor"><option value="">All sensors</option></select></label>
+    <label class="chk"><input type="checkbox" id="band" checked> Min/max band</label>
+    <label class="chk"><input type="checkbox" id="notes" checked> Journal notes</label>
+    <span id="meta"></span>
+  </div>
+  <div id="groups"></div>
+</section>
 
 <script>
-// charts[key] = {uid, field, points: [{ts,value}], el:{cur,rng,path,svg}}
-const charts = {};
-const CAP = 3000;                 // max points kept per chart in the browser
 const SVG_NS = 'http://www.w3.org/2000/svg';
-
-function keyOf(uid, field) { return uid + '|' + field; }
 
 // decimals per field (default 2); current fields have 0.001 A resolution, so 2 places shows 0.00
 const DP = { current_a: 3, load_current_rms_a: 3 };
 const fmt = (field, v) => Number(v).toFixed(DP[field] ?? 2);
+// card units as written in the sensor cards -> how the charts show them
+const UNIT = { degC: '°C' };
+// "1:2" before "1:10"
+const byUid = (a, b) => a.uid.localeCompare(b.uid, undefined, { numeric: true });
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+function setText(el, text) { if (el.textContent !== text) el.textContent = text; }
+function setClass(el, cls) { if (el.className !== cls) el.className = cls; }
+async function getJSON(url) { const r = await fetch(url); return r.json(); }
 
-function ensureCard(uid, field) {
-  const key = keyOf(uid, field);
-  if (charts[key]) return charts[key];
+// ---------------------------------------------------------------- tabs
+
+let tab = null;
+function showTab() {
+  const want = location.hash === '#history' ? 'history' : 'live';
+  if (want === tab) return;
+  tab = want;
+  document.querySelectorAll('.tabs a').forEach(a => setClass(a, a.dataset.tab === tab ? 'on' : ''));
+  document.getElementById('tab-live').hidden = tab !== 'live';
+  document.getElementById('tab-history').hidden = tab !== 'history';
+  if (tab === 'history') {
+    if (!hist.loaded) loadHistory();
+    else drawAll();                 // widths were 0 while the tab was hidden
+  }
+}
+window.addEventListener('hashchange', showTab);
+
+// ---------------------------------------------------------------- live
+
+// rows[uid] = {tr, part, vals, age, status, dlv}: built once, then only their text changes
+const rows = {};
+let lastAnn = null;
+let refreshing = false;
+
+function ensureRow(uid) {
+  if (rows[uid]) return rows[uid];
+  const tr = document.createElement('tr');
+  const td = () => tr.appendChild(document.createElement('td'));
+  td().textContent = uid;
+  rows[uid] = { tr, part: td(), vals: td(), age: td(), status: td(), dlv: td() };
+  document.querySelector('#tbl tbody').appendChild(tr);
+  return rows[uid];
+}
+
+function statusText(s) { return (s.sensor_ok ? 'ok' : 'FAULT') + (s.low_batt ? ' / low batt' : ''); }
+
+async function refresh() {
+  if (refreshing) return;          // previous tick still waiting on the gateway
+  refreshing = true;
+  try {
+    const sensors = await getJSON('/api/sensors');
+    const latests = await Promise.all(sensors.map(s =>
+      getJSON('/api/latest/' + encodeURIComponent(s.uid)).catch(() => null)));
+    const now = Date.now() / 1000;
+    const seen = new Set();
+    let online = 0;
+    sensors.forEach((s, i) => {
+      seen.add(s.uid);
+      if (s.last_seen_s_ago < 60) online++;
+      const row = ensureRow(s.uid);
+      setText(row.part, s.part ?? '');
+      setClass(row.status, s.sensor_ok ? 'ok' : 'bad');
+      setText(row.status, statusText(s));
+      setText(row.dlv, (s.delivery_ratio * 100).toFixed(1) + '%');
+      updateGroupHead(s);
+      const latest = latests[i];
+      if (!latest) return;             // request failed: keep the last values
+      const vals = latest.fields
+        ? Object.entries(latest.fields).map(([k, v]) => `${k}=${fmt(k, v.value)}`).join('  ')
+        : '(none)';
+      const age = latest.fields ? Math.min(...Object.values(latest.fields).map(f => f.age_s)) : null;
+      setText(row.vals, vals);
+      setText(row.age, age === null ? '-' : age.toFixed(0) + 's');
+      setClass(row.tr, age !== null && age > 60 ? 'stale' : '');
+      if (latest.fields) {
+        for (const [field, f] of Object.entries(latest.fields)) {
+          addLive(s.uid, field, now - (f.age_s || 0), Number(f.value));
+        }
+      }
+    });
+    for (const uid of Object.keys(rows)) {
+      if (!seen.has(uid)) { rows[uid].tr.remove(); delete rows[uid]; }
+    }
+    const on = document.getElementById('online');
+    setText(on, `${online} of ${sensors.length} online`);
+    setClass(on, online === sensors.length ? 'online' : 'online warn');
+    const ann = await getJSON('/api/annotations');
+    const annHtml = '<b>Journal (24 h):</b><br>' +
+      ann.slice(-12).map(a => `${new Date(a.ts * 1000).toLocaleTimeString()} [${esc(a.author ?? '?')}] ${esc(a.note)}`).join('<br>');
+    if (annHtml !== lastAnn) { document.getElementById('ann').innerHTML = annHtml; lastAnn = annHtml; }
+    hist.updated = Date.now();
+    updateMeta();
+  } finally {
+    refreshing = false;
+  }
+}
+
+// ---------------------------------------------------------------- history
+
+const hist = {
+  win: 21600,
+  loaded: false,
+  loading: false,
+  token: 0,            // bumps on every load, so a slow older load is discarded
+  updated: 0,
+  groups: {},          // uid -> {el, dot, part, status, dlv, grid}
+  charts: {},          // uid|field -> chart
+  notes: [],
+  cards: {},           // uid -> {part, units}
+};
+
+// About 360 points per chart whatever the window: 1 h -> 10 s, 6 h -> 1 min,
+// 24 h -> 5 min, 7 d -> 30 min.
+const BUCKETS = [10, 30, 60, 120, 300, 600, 1800, 3600];
+const bucketFor = win => BUCKETS.find(b => b >= win / 360) ?? 3600;
+const durText = s => s < 60 ? s + ' s' : s < 3600 ? s / 60 + ' min' : s / 3600 + ' h';
+
+function updateMeta() {
+  if (tab !== 'history') return;
+  const ago = hist.updated ? Math.round((Date.now() - hist.updated) / 1000) + ' s ago' : '-';
+  setText(document.getElementById('meta'), hist.loading ? 'loading history...' :
+    `1 point per ${durText(bucketFor(hist.win))} · updated ${ago}`);
+}
+
+function updateGroupHead(s) {
+  const g = hist.groups[s.uid];
+  if (!g) return;
+  setClass(g.dot, 'dot' + (!s.sensor_ok ? ' bad' : s.last_seen_s_ago > 60 ? ' old' : ''));
+  setText(g.status, statusText(s));
+  setClass(g.status, s.sensor_ok ? 'pill' : 'pill bad');
+  setText(g.dlv, 'delivery ' + (s.delivery_ratio * 100).toFixed(1) + '%');
+}
+
+function makeGroup(s) {
+  const el = document.createElement('section');
+  el.className = 'group';
+  el.innerHTML = '<div class="ghd"><span class="dot"></span><span class="uid"></span><span class="part"></span>' +
+    '<span class="pill"></span><span class="pill"></span></div><div class="grid"></div>';
+  el.querySelector('.uid').textContent = s.uid;
+  el.querySelector('.part').textContent = s.part ?? '';
+  const pills = el.querySelectorAll('.pill');
+  const g = { el, dot: el.querySelector('.dot'), status: pills[0], dlv: pills[1], grid: el.querySelector('.grid') };
+  hist.groups[s.uid] = g;
+  updateGroupHead(s);
+  return g;
+}
+
+function makeChart(uid, field, unit, grid) {
   const card = document.createElement('div');
   card.className = 'card';
-  card.innerHTML =
-    `<div class="hd"><span class="nm">${uid} &middot; ${field}</span>` +
-    `<span class="cur">-</span></div><div class="rng"></div>`;
+  card.innerHTML = '<div class="hd"><span class="nm"></span><span class="unit"></span>' +
+    '<button class="expand" type="button">Expand</button><span class="cur">-</span></div>' +
+    '<div class="stats"></div>';
+  card.querySelector('.nm').textContent = field;
+  card.querySelector('.unit').textContent = unit ?? '';
   const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 320 70');
-  svg.setAttribute('preserveAspectRatio', 'none');
-  const path = document.createElementNS(SVG_NS, 'path');
-  path.setAttribute('fill', 'none');
-  path.setAttribute('stroke', '#1b5e8a');
-  path.setAttribute('stroke-width', '1.5');
-  path.setAttribute('vector-effect', 'non-scaling-stroke');
-  svg.appendChild(path);
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', `${uid} ${field} history`);
   card.appendChild(svg);
-  document.getElementById('charts').appendChild(card);
-  charts[key] = { uid, field, points: [],
-    el: { cur: card.querySelector('.cur'), rng: card.querySelector('.rng'), path } };
-  return charts[key];
+  const tip = document.createElement('div');
+  tip.className = 'tip';
+  tip.hidden = true;
+  card.appendChild(tip);
+  grid.appendChild(card);
+  const c = { uid, field, unit, pts: [], live: null, wide: false, geo: null,
+              el: { card, svg, tip, cur: card.querySelector('.cur'), stats: card.querySelector('.stats'),
+                    btn: card.querySelector('.expand') } };
+  c.el.btn.addEventListener('click', () => {
+    c.wide = !c.wide;
+    card.classList.toggle('wide', c.wide);
+    c.el.btn.textContent = c.wide ? 'Collapse' : 'Expand';
+    draw(c);
+  });
+  svg.addEventListener('mousemove', e => hover(c, e));
+  svg.addEventListener('mouseleave', () => { tip.hidden = true; const h = svg.querySelector('.hv'); if (h) h.remove(); });
+  hist.charts[uid + '|' + field] = c;
+  return c;
+}
+
+async function loadHistory() {
+  const token = ++hist.token;
+  hist.loading = true;
+  updateMeta();
+  const win = hist.win, bucket = bucketFor(win);
+  try {
+    const sensors = await getJSON('/api/sensors');
+    const notes = await getJSON('/api/annotations?since=' + win).catch(() => []);
+    sensors.sort(byUid);
+    const loaded = await Promise.all(sensors.map(async s => {
+      const uid = encodeURIComponent(s.uid);
+      if (!hist.cards[s.uid]) hist.cards[s.uid] = await getJSON('/api/card/' + uid).catch(() => ({}));
+      const latest = await getJSON('/api/latest/' + uid).catch(() => ({}));
+      const fields = Object.keys(latest.fields || {});
+      const series = {};
+      for (const f of fields) {
+        const r = await getJSON(`/api/series/${uid}/${encodeURIComponent(f)}?since=${win}&agg=band&bucket=${bucket}`)
+          .catch(() => ({}));
+        series[f] = (r.points || []).filter(p => isFinite(p.value)).map(p =>
+          ({ ts: p.ts, value: p.value, min: p.min ?? p.value, max: p.max ?? p.value, n: p.n || 1 }));
+      }
+      return { s, latest, fields, series };
+    }));
+    if (token !== hist.token) return;   // window changed while loading
+
+    const box = document.getElementById('groups');
+    box.textContent = '';
+    hist.groups = {};
+    const wide = new Set(Object.values(hist.charts).filter(c => c.wide).map(c => c.uid + '|' + c.field));
+    hist.charts = {};
+    hist.notes = notes;
+    const sel = document.getElementById('sensor');
+    const pick = sel.value;
+    sel.length = 1;
+    for (const { s, latest, fields, series } of loaded) {
+      if (!fields.length) continue;
+      const opt = document.createElement('option');
+      opt.value = s.uid;
+      opt.textContent = `${s.uid} ${s.part ?? ''}`;
+      sel.appendChild(opt);
+      const g = makeGroup(s);
+      box.appendChild(g.el);
+      const units = (hist.cards[s.uid] || {}).units || {};
+      for (const f of fields) {
+        const c = makeChart(s.uid, f, UNIT[units[f]] ?? units[f], g.grid);
+        c.pts = series[f];
+        const lf = latest.fields[f];
+        setCur(c, lf.value);
+        if (wide.has(s.uid + '|' + f)) c.el.btn.click();
+      }
+    }
+    if ([...sel.options].some(o => o.value === pick)) sel.value = pick;
+    applyFilter();
+    if (!box.children.length) box.innerHTML = '<p class="empty">No readings stored yet.</p>';
+    hist.loaded = true;
+  } finally {
+    if (token === hist.token) { hist.loading = false; updateMeta(); }
+  }
+  drawAll();
+}
+
+function setCur(c, v) {
+  c.el.cur.innerHTML = esc(fmt(c.field, v)) + (c.unit ? ' <small>' + esc(c.unit) + '</small>' : '');
+}
+
+// New live readings go into the newest bucket, so the chart keeps moving
+// between loads without mixing raw points into bucketed ones.
+function addLive(uid, field, ts, v) {
+  const c = hist.charts[uid + '|' + field];
+  if (!c || !isFinite(v)) return;
+  if (c.live !== null && Math.abs(ts - c.live) < 0.5) return;   // same reading as the last poll
+  c.live = ts;
+  setCur(c, v);
+  const b = Math.floor(ts / bucketFor(hist.win)) * bucketFor(hist.win);
+  const last = c.pts[c.pts.length - 1];
+  if (last && last.ts === b) {
+    last.value = (last.value * last.n + v) / (last.n + 1);
+    last.n += 1;
+    last.min = Math.min(last.min, v);
+    last.max = Math.max(last.max, v);
+  } else if (!last || b > last.ts) {
+    c.pts.push({ ts: b, value: v, min: v, max: v, n: 1 });
+  } else {
+    return;
+  }
+  const t0 = Date.now() / 1000 - hist.win;
+  while (c.pts.length && c.pts[0].ts < t0) c.pts.shift();
+  if (tab === 'history') draw(c);
+}
+
+function drawAll() { if (tab === 'history') Object.values(hist.charts).forEach(draw); }
+
+function applyFilter() {
+  const pick = document.getElementById('sensor').value;
+  for (const [uid, g] of Object.entries(hist.groups)) g.el.hidden = !!pick && uid !== pick;
+  drawAll();
+}
+
+function tickText(v, span) {
+  return span >= 50 ? Math.round(v).toString() : v.toFixed(span >= 5 ? 1 : 2);
+}
+
+function timeText(t) {
+  const d = new Date(t * 1000);
+  const hm = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return hist.win > 86400 ? d.toLocaleDateString([], { weekday: 'short' }) + ' ' + hm : hm;
 }
 
 function draw(c) {
-  const pts = c.points;
-  if (!pts.length) { c.el.path.setAttribute('d', ''); return; }
-  const W = 320, H = 70, pad = 3;
-  let t0 = pts[0].ts, t1 = pts[pts.length - 1].ts;
-  let vmin = Infinity, vmax = -Infinity;
-  for (const p of pts) { if (p.value < vmin) vmin = p.value; if (p.value > vmax) vmax = p.value; }
-  const tspan = (t1 - t0) || 1, vspan = (vmax - vmin) || 1;
-  const x = t => pad + (t - t0) / tspan * (W - 2 * pad);
-  const y = v => H - pad - (v - vmin) / vspan * (H - 2 * pad);
-  let d = '';
-  for (let i = 0; i < pts.length; i++) d += (i ? 'L' : 'M') + x(pts[i].ts).toFixed(1) + ' ' + y(pts[i].value).toFixed(1);
-  c.el.path.setAttribute('d', d);
-  const last = pts[pts.length - 1].value;
-  c.el.cur.textContent = fmt(c.field, last);
-  c.el.rng.textContent = 'min ' + fmt(c.field, vmin) + '  max ' + fmt(c.field, vmax) +
-    '  (' + pts.length + ' pts)';
-}
+  const svg = c.el.svg;
+  const W = svg.clientWidth;
+  if (!W) return;                       // hidden
+  const H = c.wide ? 220 : 130, L = 44, R = 8, T = 14, B = 20;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('height', H);
+  const showBand = document.getElementById('band').checked;
+  const now = Date.now() / 1000, t0 = now - hist.win;
+  const pts = c.pts.filter(p => p.ts >= t0 - bucketFor(hist.win));
 
-function pushPoint(uid, field, ts, value) {
-  if (value == null || !isFinite(value)) return;
-  const c = ensureCard(uid, field);
-  const p = c.points;
-  if (p.length && ts <= p[p.length - 1].ts) return;   // keep monotonic
-  p.push({ ts, value });
-  if (p.length > CAP) p.splice(0, p.length - CAP);
-  draw(c);
-}
+  if (!pts.length) {
+    svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" font-size="11" fill="#888" text-anchor="middle">no data in this window</text>`;
+    c.el.stats.textContent = '';
+    c.geo = null;
+    return;
+  }
+  let mn = Infinity, mx = -Infinity, sum = 0, cnt = 0;
+  for (const p of pts) {
+    mn = Math.min(mn, p.min); mx = Math.max(mx, p.max);
+    sum += p.value * p.n; cnt += p.n;
+  }
+  c.el.stats.innerHTML = `<span>mean <b>${esc(fmt(c.field, sum / cnt))}</b></span>` +
+    `<span>min <b>${esc(fmt(c.field, mn))}</b></span><span>max <b>${esc(fmt(c.field, mx))}</b></span>`;
+  let lo = showBand ? mn : Math.min(...pts.map(p => p.value));
+  let hi = showBand ? mx : Math.max(...pts.map(p => p.value));
+  if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+  const padv = (hi - lo) * 0.06; lo -= padv; hi += padv;
+  const X = t => L + (t - t0) / hist.win * (W - L - R);
+  const Y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
 
-async function backfill() {
-  const since = document.getElementById('win').value;
-  document.getElementById('chartnote').textContent = 'loading history...';
-  const sensors = await (await fetch('/api/sensors')).json();
-  for (const s of sensors) {
-    let latest;
-    try { latest = await (await fetch('/api/latest/' + encodeURIComponent(s.uid))).json(); }
-    catch (e) { continue; }
-    if (!latest.fields) continue;
-    for (const field of Object.keys(latest.fields)) {
-      const c = ensureCard(s.uid, field);
-      c.points = [];
-      try {
-        const r = await (await fetch('/api/series/' + encodeURIComponent(s.uid) +
-          '/' + encodeURIComponent(field) + '?since=' + since + '&agg=mean&bucket=60')).json();
-        c.points = (r.points || []).filter(p => isFinite(p.value)).map(p => ({ ts: p.ts, value: p.value }));
-      } catch (e) { /* leave empty */ }
-      draw(c);
+  let s = '';
+  for (let k = 0; k <= 3; k++) {
+    const v = lo + k / 3 * (hi - lo), y = Y(v).toFixed(1);
+    s += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" stroke="#eee"/>` +
+      `<text x="${L - 5}" y="${(+y + 3).toFixed(1)}" font-size="9" fill="#888" text-anchor="end">${tickText(v, hi - lo)}</text>`;
+  }
+  // as many time labels as fit: about 80 px each, 110 px with a weekday
+  const nt = Math.max(2, Math.min(8, Math.floor((W - L - R) / (hist.win > 86400 ? 110 : 80))));
+  for (let k = 0; k <= nt; k++) {
+    const t = t0 + k / nt * hist.win;
+    s += `<text x="${X(t).toFixed(1)}" y="${H - 5}" font-size="9" fill="#888" text-anchor="${k === 0 ? 'start' : k === nt ? 'end' : 'middle'}">${k === nt ? 'now' : timeText(t)}</text>`;
+  }
+
+  // split into runs; a hole wider than 3 buckets is a time the sensor was offline
+  const dts = pts.slice(1).map((p, i) => p.ts - pts[i].ts).sort((a, b) => a - b);
+  const step = Math.max(bucketFor(hist.win), dts.length ? dts[dts.length >> 1] : 0);
+  const runs = [[pts[0]]];
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i].ts - pts[i - 1].ts > 3 * step) {
+      const x0 = X(pts[i - 1].ts), x1 = X(pts[i].ts);
+      s += `<rect x="${x0.toFixed(1)}" y="${T}" width="${(x1 - x0).toFixed(1)}" height="${H - T - B}" fill="#f3f3f3"/>`;
+      if (x1 - x0 > 40) s += `<text x="${((x0 + x1) / 2).toFixed(1)}" y="${H - B - 6}" font-size="9" fill="#888" text-anchor="middle">offline</text>`;
+      runs.push([]);
+    }
+    runs[runs.length - 1].push(pts[i]);
+  }
+  for (const run of runs) {
+    if (showBand && run.length > 1) {
+      const top = run.map((p, i) => (i ? 'L' : 'M') + X(p.ts).toFixed(1) + ' ' + Y(p.max).toFixed(1)).join('');
+      const bot = run.slice().reverse().map(p => 'L' + X(p.ts).toFixed(1) + ' ' + Y(p.min).toFixed(1)).join('');
+      s += `<path d="${top}${bot}Z" fill="#1b5e8a" opacity=".13"/>`;
+    }
+    if (run.length === 1) {
+      s += `<circle cx="${X(run[0].ts).toFixed(1)}" cy="${Y(run[0].value).toFixed(1)}" r="1.8" fill="#1b5e8a"/>`;
+    } else {
+      s += `<path d="${run.map((p, i) => (i ? 'L' : 'M') + X(p.ts).toFixed(1) + ' ' + Y(p.value).toFixed(1)).join('')}" fill="none" stroke="#1b5e8a" stroke-width="1.6" stroke-linejoin="round"/>`;
     }
   }
-  document.getElementById('chartnote').textContent = '';
-}
 
-async function refresh() {
-  const now = Date.now() / 1000;
-  const sensors = await (await fetch('/api/sensors')).json();
-  const tbody = document.querySelector('#tbl tbody');
-  tbody.innerHTML = '';
-  for (const s of sensors) {
-    const latest = await (await fetch('/api/latest/' + encodeURIComponent(s.uid))).json();
-    const vals = latest.fields
-      ? Object.entries(latest.fields).map(([k, v]) => `${k}=${fmt(k, v.value)}`).join('  ')
-      : '(none)';
-    const age = latest.fields ? Math.min(...Object.values(latest.fields).map(f => f.age_s)) : null;
-    const tr = document.createElement('tr');
-    if (age !== null && age > 60) tr.className = 'stale';
-    tr.innerHTML = `<td>${s.uid}</td><td>${s.part ?? ''}</td><td>${vals}</td>` +
-      `<td>${age === null ? '-' : age.toFixed(0) + 's'}</td>` +
-      `<td class="${s.sensor_ok ? 'ok' : 'bad'}">${s.sensor_ok ? 'ok' : 'FAULT'}${s.low_batt ? ' / low batt' : ''}</td>` +
-      `<td>${(s.delivery_ratio * 100).toFixed(1)}%</td>`;
-    tbody.appendChild(tr);
-    if (latest.fields) {
-      for (const [field, f] of Object.entries(latest.fields)) {
-        pushPoint(s.uid, field, now - (f.age_s || 0), Number(f.value));
-      }
+  if (document.getElementById('notes').checked) {
+    const taken = [];                   // [x0, x1] of labels already drawn
+    for (const a of hist.notes) {
+      if (a.ts < t0 || (a.sensor_uid && a.sensor_uid !== c.uid)) continue;
+      const x = X(a.ts).toFixed(1);
+      const label = String(a.note ?? '');
+      const short = label.length > (c.wide ? 40 : 18) ? label.slice(0, c.wide ? 39 : 17) + '…' : label;
+      // near the right edge the label goes on the left of the marker
+      const left = +x > W - R - (c.wide ? 260 : 120);
+      // a label that would overlap an earlier one is left off; the marker stays and hovering it shows the note
+      const lw = short.length * 5.6 + 8;
+      const span = left ? [+x - lw, +x] : [+x, +x + lw];
+      const fits = !taken.some(([a0, a1]) => span[0] < a1 && span[1] > a0);
+      if (fits) taken.push(span);
+      s += `<g><title>${esc(new Date(a.ts * 1000).toLocaleString() + ' [' + (a.author ?? '?') + '] ' + label)}</title>` +
+        `<line x1="${x}" x2="${x}" y1="${T}" y2="${H - B}" stroke="#c46b00" stroke-dasharray="3 3"/>` +
+        `<path d="M${(+x - 4).toFixed(1)} ${T - 2} L${(+x + 4).toFixed(1)} ${T - 2} L${x} ${T + 5}Z" fill="#c46b00"/>` +
+        (fits ? `<text x="${(+x + (left ? -6 : 6)).toFixed(1)}" y="${T + 6}" font-size="10" fill="#c46b00" text-anchor="${left ? 'end' : 'start'}">${esc(short)}</text>` : '') +
+        `<rect x="${(+x - 5).toFixed(1)}" y="${T - 2}" width="10" height="${H - T - B + 2}" fill="transparent"/></g>`;
     }
   }
-  const ann = await (await fetch('/api/annotations')).json();
-  document.getElementById('ann').innerHTML = '<b>Journal (24 h):</b><br>' +
-    ann.slice(-12).map(a => `${new Date(a.ts * 1000).toLocaleTimeString()} [${a.author ?? '?'}] ${a.note}`).join('<br>');
+  svg.innerHTML = s;
+  c.geo = { X, Y, pts, W, H, T, B };
 }
 
-document.getElementById('win').addEventListener('change', () => {
-  for (const k of Object.keys(charts)) charts[k].points = [];
-  backfill();
-});
+function hover(c, e) {
+  const g = c.geo;
+  if (!g) return;
+  const r = c.el.svg.getBoundingClientRect();
+  const mx = (e.clientX - r.left) * g.W / r.width;
+  let best = g.pts[0], bd = Infinity;
+  for (const p of g.pts) { const d = Math.abs(g.X(p.ts) - mx); if (d < bd) { bd = d; best = p; } }
+  const x = g.X(best.ts), y = g.Y(best.value);
+  let h = c.el.svg.querySelector('.hv');
+  if (!h) { h = document.createElementNS(SVG_NS, 'g'); h.setAttribute('class', 'hv'); c.el.svg.appendChild(h); }
+  h.innerHTML = `<line x1="${x}" x2="${x}" y1="${g.T}" y2="${g.H - g.B}" stroke="#999"/>` +
+    `<circle cx="${x}" cy="${y}" r="3.5" fill="#1b5e8a" stroke="#fff" stroke-width="1.5"/>`;
+  const tip = c.el.tip;
+  const range = best.n > 1 ? ` (min ${fmt(c.field, best.min)}, max ${fmt(c.field, best.max)})` : '';
+  tip.innerHTML = `${esc(new Date(best.ts * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' }))}<br>` +
+    `<b>${esc(fmt(c.field, best.value))} ${esc(c.unit ?? '')}</b>${esc(range)}`;
+  tip.hidden = false;
+  // SVG elements have no offsetTop/offsetLeft: position from the bounding boxes
+  const cr = c.el.card.getBoundingClientRect();
+  const px = r.left - cr.left + x * r.width / g.W;
+  const left = px + 12 + tip.offsetWidth > cr.width ? px - 12 - tip.offsetWidth : px + 12;
+  tip.style.left = Math.max(4, left) + 'px';
+  tip.style.top = (r.top - cr.top + 4) + 'px';
+}
 
-(async () => { await backfill(); await refresh(); setInterval(refresh, 5000); })();
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
+  const win = Number(b.dataset.win);
+  if (win === hist.win && !hist.loading) return;
+  hist.win = win;
+  document.querySelectorAll('.seg button').forEach(x => x.classList.toggle('on', x === b));
+  loadHistory();
+}));
+document.getElementById('sensor').addEventListener('change', applyFilter);
+document.getElementById('band').addEventListener('change', drawAll);
+document.getElementById('notes').addEventListener('change', drawAll);
+let resizeTimer = null;
+window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(drawAll, 150); });
+// keeps the time axis sliding and the "updated" age current
+setInterval(() => { updateMeta(); }, 1000);
+setInterval(drawAll, 30000);
+
+showTab();
+(async () => { await refresh(); setInterval(refresh, 5000); })();
 </script>
 </body>
 </html>

@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from ..mcp_server.context import GatewayContext
+from ..mcp_server.tools.describe_sensor import describe_sensor
 from ..mcp_server.tools.list_sensors import list_sensors
 from ..mcp_server.tools.read_latest import read_latest
 
@@ -48,13 +49,37 @@ def make_handler(ctx: GatewayContext):
                 self._json(read_latest(ctx, uid))
             elif self.path.startswith("/api/series/"):
                 self._series()
-            elif self.path == "/api/annotations":
-                self._json(ctx.store.annotations(since=time.time() - 86400))
+            elif self.path.startswith("/api/card/"):
+                self._card(unquote(self.path.rsplit("/", 1)[-1]))
+            elif urlsplit(self.path).path == "/api/annotations":
+                # ?since=<s> back from now, default 24 h, at most 30 days
+                try:
+                    since = float(parse_qs(urlsplit(self.path).query)
+                                  .get("since", ["86400"])[0])
+                except ValueError:
+                    since = 86400.0
+                since = max(1.0, min(since, 30 * 86400))
+                self._json(ctx.store.annotations(since=time.time() - since))
             else:
                 self._json({"error": "not found"}, 404)
 
+        def _card(self, uid):
+            # part and unit per field, so the history charts can label axes
+            try:
+                card = describe_sensor(ctx, uid)
+            except ValueError:
+                self._json({"error": "usage /api/card/<kit_id>:<type_id>"}, 400)
+                return
+            if "error" in card:
+                self._json(card, 404)
+                return
+            self._json({"part": card.get("part"),
+                        "units": {m["name"]: m.get("unit")
+                                  for m in card.get("measurands", [])}})
+
         def _series(self):
-            # /api/series/<uid>/<field>?since=<s>&agg=<mean|min|max|raw>&bucket=<s>
+            # /api/series/<uid>/<field>?since=<s>&agg=<mean|min|max|band|raw>&bucket=<s>
+            # band = mean plus min/max per bucket
             # Reads history straight from the store so a freshly opened
             # dashboard backfills its graphs instead of starting blank.
             parts = urlsplit(self.path)
@@ -74,7 +99,7 @@ def make_handler(ctx: GatewayContext):
             since = max(1.0, min(since, 30 * 86400))
             bucket = max(1, min(bucket, 3600))
             agg = q.get("agg", ["mean"])[0]
-            if agg not in ("mean", "min", "max"):
+            if agg not in ("mean", "min", "max", "band"):
                 agg = None
             now = time.time()
             pts = ctx.store.query_timeseries(
