@@ -154,7 +154,7 @@ async function refresh() {
   if (refreshing) return;          // previous tick still waiting on the gateway
   refreshing = true;
   try {
-    const sensors = await getJSON('/api/sensors');
+    const sensors = (await getJSON('/api/sensors')).sort(byUid);
     const latests = await Promise.all(sensors.map(s =>
       getJSON('/api/latest/' + encodeURIComponent(s.uid)).catch(() => null)));
     const now = Date.now() / 1000;
@@ -187,6 +187,11 @@ async function refresh() {
     for (const uid of Object.keys(rows)) {
       if (!seen.has(uid)) { rows[uid].tr.remove(); delete rows[uid]; }
     }
+    // keep rows in UID order; a sensor that appears later moves into place.
+    // Rows are only moved when the order is off, so a normal tick moves nothing.
+    const tbody = document.querySelector('#tbl tbody');
+    const want = sensors.map(s => rows[s.uid].tr);
+    if (want.some((tr, i) => tbody.children[i] !== tr)) want.forEach(tr => tbody.appendChild(tr));
     const on = document.getElementById('online');
     setText(on, `${online} of ${sensors.length} online`);
     setClass(on, online === sensors.length ? 'online' : 'online warn');
