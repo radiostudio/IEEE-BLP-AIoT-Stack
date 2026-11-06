@@ -47,7 +47,10 @@ def build_evidence_pack(ctx: GatewayContext, recipe: dict,
                         window_s: float | None = None) -> dict:
     end = time.time()
     start = end - (window_s or recipe.get("window_s", 3600))
-    inventory = {s["uid"]: s for s in list_sensors(ctx)}
+    # uid -> its devices; two nodes can share a uid and differ only by mac
+    inventory: dict[str, list[dict]] = {}
+    for s in list_sensors(ctx):
+        inventory.setdefault(s["uid"], []).append(s)
     pack = {
         "question": recipe["question"],
         "recipe": recipe["name"],
@@ -58,24 +61,35 @@ def build_evidence_pack(ctx: GatewayContext, recipe: dict,
     }
     for spec in recipe["sensors"]:
         uid, field = spec["uid"], spec["field"]
-        if uid not in inventory:
+        devices = inventory.get(uid, [])
+        if not devices:
             pack["caveats"].append(f"{uid} ({spec.get('role')}) not present; "
                                    f"conclusions relying on it are weakened")
             continue
-        series = query_timeseries(ctx, uid, field, start, end,
-                                  agg=spec.get("agg", "mean"),
-                                  bucket_s=spec.get("bucket_s", 60))
-        verdict = validate_reading(ctx, uid, field)
-        pack["sensors"][f"{uid}.{field}"] = {
-            "role": spec.get("role"),
-            "series": series,
-            "latest_validation": {k: verdict[k] for k in
-                                  ("verdict", "reasoning")},
-            "delivery_ratio": inventory[uid]["delivery_ratio"],
-        }
-        if verdict["verdict"] != "plausible":
+        if len(devices) > 1:
             pack["caveats"].append(
-                f"{uid}.{field} latest validation: {verdict['verdict']}")
+                f"{uid} has {len(devices)} devices "
+                f"({', '.join(d['mac'] for d in devices)}); each is listed "
+                f"separately, decide whether they measure the same place")
+        for dev in devices:
+            mac = dev["mac"]
+            # one device keeps the plain "uid.field" key
+            label = uid if len(devices) == 1 else f"{uid}@{mac}"
+            series = query_timeseries(ctx, uid, field, start, end,
+                                      agg=spec.get("agg", "mean"),
+                                      bucket_s=spec.get("bucket_s", 60), mac=mac)
+            verdict = validate_reading(ctx, uid, field, mac=mac)
+            pack["sensors"][f"{label}.{field}"] = {
+                "role": spec.get("role"),
+                "mac": mac,
+                "series": series,
+                "latest_validation": {k: verdict[k] for k in
+                                      ("verdict", "reasoning")},
+                "delivery_ratio": dev["delivery_ratio"],
+            }
+            if verdict["verdict"] != "plausible":
+                pack["caveats"].append(
+                    f"{label}.{field} latest validation: {verdict['verdict']}")
     return pack
 
 
@@ -131,11 +145,12 @@ def check_liveness(ctx: GatewayContext, quiet_factor: float = 6.0) -> list[dict]
         period = card.sampling_period_s if card else 10.0
         silent_for = now - s["last_seen"]
         if silent_for > period * quiet_factor:
-            finding = {"uid": s["uid"], "part": s["part"],
+            finding = {"uid": s["uid"], "mac": s["mac"], "part": s["part"],
                        "silent_for_s": round(silent_for, 1),
                        "expected_period_s": period}
             findings.append(finding)
-            annotate(ctx, f"liveness: {s['uid']} silent for "
+            device = f"{s['uid']} {s['mac']}" if s["mac"] else s["uid"]
+            annotate(ctx, f"liveness: {device} silent for "
                      f"{silent_for:.0f}s (expected every {period:.0f}s); "
                      f"dry-floor and dead-sensor are indistinguishable "
                      f"without this check", author="watchdog")

@@ -10,7 +10,7 @@
   "graphTooltip": 1,
   "refresh": "10s",
   "schemaVersion": 41,
-  "version": 1,
+  "version": 2,
   "time": {
     "from": "now-6h",
     "to": "now"
@@ -68,6 +68,34 @@
         "includeAll": true,
         "sort": 7,
         "description": "Sensor UID (kit:type)",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": []
+      },
+      {
+        "name": "device",
+        "label": "Device",
+        "type": "query",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "aiot-influx"
+        },
+        "query": "SHOW TAG VALUES WITH KEY = \"mac\" WHERE \"sensor_uid\" =~ /^$sensor$/",
+        "definition": "SHOW TAG VALUES WITH KEY = \"mac\" WHERE \"sensor_uid\" =~ /^$sensor$/",
+        "regex": "",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "sort": 1,
+        "description": "Device ID (Bluetooth MAC). Two devices of one type with the same kit ID share a Sensor UID and differ only here.",
         "current": {
           "selected": true,
           "text": [
@@ -177,8 +205,8 @@
           },
           "rawQuery": true,
           "resultFormat": "time_series",
-          "query": "SELECT mean(/^(mean_)?$field$/) FROM \"$source\"./^readings/ WHERE \"sensor_uid\" =~ /^$sensor$/ AND $timeFilter GROUP BY time($__interval), \"sensor_uid\" fill(none)",
-          "alias": "$tag_sensor_uid"
+          "query": "SELECT mean(/^(mean_)?$field$/) FROM \"$source\"./^readings/ WHERE \"sensor_uid\" =~ /^$sensor$/ AND \"mac\" =~ /^$device$/ AND $timeFilter GROUP BY time($__interval), \"sensor_uid\", \"mac\" fill(none)",
+          "alias": "$tag_sensor_uid $tag_mac"
         }
       ],
       "fieldConfig": {
@@ -212,8 +240,8 @@
     {
       "id": 1,
       "type": "table",
-      "title": "Last frame per sensor (in the time range)",
-      "description": "Sensors with no frame in the chosen time range are not listed. Sensor health and delivery ratio are on the gateway dashboard (port 8931).",
+      "title": "Last frame per device (in the time range)",
+      "description": "Devices with no frame in the chosen time range are not listed. Sensor health and delivery ratio are on the gateway dashboard (port 8931).",
       "datasource": {
         "type": "influxdb",
         "uid": "aiot-influx"
@@ -233,7 +261,7 @@
           },
           "rawQuery": true,
           "resultFormat": "table",
-          "query": "SELECT last(\"seq\") FROM \"raw\".\"readings\" WHERE \"sensor_uid\" =~ /^$sensor$/ AND $timeFilter GROUP BY \"sensor_uid\", \"sensor_type_id\""
+          "query": "SELECT last(\"seq\") FROM \"raw\".\"readings\" WHERE \"sensor_uid\" =~ /^$sensor$/ AND \"mac\" =~ /^$device$/ AND $timeFilter GROUP BY \"sensor_uid\", \"mac\", \"sensor_type_id\""
         }
       ],
       "transformations": [
@@ -267,10 +295,12 @@
             },
             "indexByName": {
               "sensor_uid": 0,
-              "Time": 1
+              "mac": 1,
+              "Time": 2
             },
             "renameByName": {
               "sensor_uid": "Sensor",
+              "mac": "Device ID",
               "Time": "Last frame"
             }
           }

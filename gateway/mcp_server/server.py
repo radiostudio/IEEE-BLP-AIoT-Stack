@@ -53,13 +53,18 @@ def build_server(ctx: GatewayContext | None = None):
             "described by machine-readable cards: call describe_sensor before "
             "interpreting any reading, and validate_reading before trusting "
             "one. Ask the user for physical context and record it with "
-            "annotate. Rules you deploy require human approval before they run."
+            "annotate. Rules you deploy require human approval before they run. "
+            "A sensor uid (kit:type) can have several devices, told apart by "
+            "their Bluetooth MAC: list_sensors shows one entry per device, and "
+            "the reading tools take an optional mac. Without it they answer per "
+            "device under 'devices' when a uid has more than one."
         ),
     )
 
     @mcp.tool()
     def list_sensors() -> list[dict]:
-        """Live sensor inventory with last-seen age, status, delivery ratio."""
+        """Live sensor inventory, one entry per device (uid + mac), with
+        last-seen age, status, delivery ratio."""
         return t_list.list_sensors(ctx)
 
     @mcp.tool()
@@ -69,17 +74,21 @@ def build_server(ctx: GatewayContext | None = None):
         return t_describe.describe_sensor(ctx, sensor)
 
     @mcp.tool()
-    def read_latest(sensor_uid: str) -> dict:
-        """Most recent value per measurand for one sensor uid."""
-        return t_read.read_latest(ctx, sensor_uid)
+    def read_latest(sensor_uid: str, mac: str | None = None) -> dict:
+        """Most recent value per measurand for one sensor uid. mac selects
+        one device; without it a uid with several devices answers per device."""
+        return t_read.read_latest(ctx, sensor_uid, mac)
 
     @mcp.tool()
     def query_timeseries(sensor_uid: str, field: str, start: float, end: float,
-                         agg: str | None = None, bucket_s: int = 60) -> dict:
+                         agg: str | None = None, bucket_s: int = 60,
+                         mac: str | None = None) -> dict:
         """Series between epoch seconds start/end. agg: mean|min|max buckets
-        of bucket_s, or omit for raw points (tick-reconciled timestamps)."""
+        of bucket_s, or omit for raw points (tick-reconciled timestamps).
+        mac selects one device; without it a uid with several devices
+        returns one series per device."""
         return t_query.query_timeseries(ctx, sensor_uid, field, start, end,
-                                        agg, bucket_s)
+                                        agg, bucket_s, mac)
 
     @mcp.tool()
     def capture_experiment(name: str, sensors: list[str],
@@ -107,15 +116,20 @@ def build_server(ctx: GatewayContext | None = None):
 
     @mcp.tool()
     def validate_reading(sensor_uid: str, field: str,
-                         value: float | None = None) -> dict:
+                         value: float | None = None,
+                         mac: str | None = None) -> dict:
         """Verdict (plausible/implausible/stale/invalid) with reasoning, from
-        the card's plausibility bounds, rate limits, status bits, staleness."""
-        return t_validate.validate_reading(ctx, sensor_uid, field, value)
+        the card's plausibility bounds, rate limits, status bits, staleness.
+        mac selects one device; without it a uid with several devices gets
+        one verdict per device."""
+        return t_validate.validate_reading(ctx, sensor_uid, field, value, mac)
 
     @mcp.tool()
     def deploy_rule(spec: dict, capability_token: str) -> dict:
         """Submit a deterministic edge rule (JSON spec). Requires the gateway's
-        capability token and lands as pending until a human approves it."""
+        capability token and lands as pending until a human approves it.
+        A condition may name a device with "mac"; without it the condition
+        holds when any device under the sensor uid meets it."""
         return t_deploy.deploy_rule(ctx, spec, capability_token)
 
     # Resources: every sensor card, plus any datasheets dropped in resources/.

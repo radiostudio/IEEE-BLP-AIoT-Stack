@@ -57,7 +57,20 @@
   - `simulate --twin <type_id>`: a second simulated device of that type.
   - `gateway/tests/test_multi_device.py` (SQLite; `influx` argument adds
     InfluxDB).
-  - Grafana, the other MCP tools and rules are not per device yet.
+- **Device ID, part 2: tools, agents, rules and Grafana per device.**
+  - MCP tools `read_latest`, `query_timeseries`, `validate_reading` take an
+    optional `mac`. Without it: one device answers as before plus `mac`;
+    several answer per device under `devices`; none gives the usual "no
+    readings". A given value is still judged from the card alone.
+    `gateway/mcp_server/tools/devices.py`. CLI: `tool ... --mac`.
+  - Recipe evidence packs: one entry per device (`1:2@<mac>.<field>`) with a
+    caveat; liveness notes name the MAC.
+  - Rules: optional `"mac"` per condition (checked by `deploy_rule`). The
+    engine keeps values and timers per device; without `mac` a condition
+    holds if any device meets it, so a faulty device no longer resets a
+    healthy one's timer.
+  - Grafana: Device dropdown, per-device lines, Device ID column in "Last
+    frame per device".
 
 ### Changed
 - **Databases from before the Device ID change are refused** at startup with

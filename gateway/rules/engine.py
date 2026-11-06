@@ -20,6 +20,10 @@ Rule spec:
 
 Condition semantics:
 - op: <, <=, >, >=, ==, !=  against the latest value of sensor.field
+- mac (optional): only that device of the sensor uid counts. Without it the
+  condition holds when any device under the uid meets it. Each device keeps
+  its own latest value and timers, so two devices sharing a uid never reset
+  each other, and a faulty one (on_fault skip) only blocks itself
 - for_s: condition must have held continuously for this long
 - within_s: condition must have been true at least once in this window
 Action types: log (stdout + annotation), annotate, webhook (POST JSON to url),
@@ -53,9 +57,11 @@ class RuleEngine:
         self.store = store
         self.rules_dir = Path(rules_dir)
         self.rules: list[dict] = []
-        self._state: dict[tuple[str, int], _CondState] = {}
+        self._state: dict[tuple[str, int, str], _CondState] = {}
         self._last_fired: dict[str, float] = {}
-        self._latest: dict[tuple[str, str], tuple[float, float, int]] = {}
+        self._latest: dict[tuple[str, str, str], tuple[float, float, int]] = {}
+        # (uid, field) -> macs seen, in arrival order
+        self._macs: dict[tuple[str, str], dict[str, None]] = {}
         self.fired_log: list[dict] = []
         self.reload()
 
@@ -72,10 +78,12 @@ class RuleEngine:
 
     # The engine is fed by the pipeline; it keeps its own latest-value cache so
     # evaluation never blocks on database reads.
-    def evaluate(self, sensor_uid: str, values: dict[str, float], status: int) -> None:
+    def evaluate(self, sensor_uid: str, values: dict[str, float], status: int,
+                 mac: str = "") -> None:
         now = time.time()
         for field, value in values.items():
-            self._latest[(sensor_uid, field)] = (value, now, status)
+            self._latest[(sensor_uid, field, mac)] = (value, now, status)
+            self._macs.setdefault((sensor_uid, field), {})[mac] = None
         for rule in self.rules:
             self._eval_rule(rule, now)
 
@@ -95,9 +103,18 @@ class RuleEngine:
 
     def _eval_cond(self, rule_name: str, idx: int, cond: dict,
                    on_fault: str, now: float) -> bool:
-        key = (rule_name, idx)
-        st = self._state.setdefault(key, _CondState())
-        latest = self._latest.get((cond["sensor"], cond["field"]))
+        want = cond.get("mac")
+        macs = ([want.upper()] if want
+                else list(self._macs.get((cond["sensor"], cond["field"]), ())))
+        held = False
+        for mac in macs:  # every device, so each one's timers stay current
+            held |= self._eval_device(rule_name, idx, cond, mac, on_fault, now)
+        return held
+
+    def _eval_device(self, rule_name: str, idx: int, cond: dict, mac: str,
+                     on_fault: str, now: float) -> bool:
+        st = self._state.setdefault((rule_name, idx, mac), _CondState())
+        latest = self._latest.get((cond["sensor"], cond["field"], mac))
         if latest is None:
             return False
         value, ts, status = latest

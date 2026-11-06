@@ -10,12 +10,16 @@ mistakes, directly into the control path.
 from __future__ import annotations
 
 import json
+import re
 import secrets
 
 from ..context import GatewayContext
 
 _ALLOWED_ACTIONS = {"log", "annotate", "webhook", "gpio"}
 _ALLOWED_OPS = {"<", "<=", ">", ">=", "==", "!="}
+# a Bluetooth MAC (AA:BB:CC:DD:EE:FF), or the UUID macOS reports instead
+_DEVICE_ID = re.compile(r"^(?:[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}"
+                        r"|[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})$")
 
 
 def ensure_capability_token(ctx: GatewayContext) -> str:
@@ -41,6 +45,10 @@ def validate_rule_spec(spec: dict) -> list[str]:
                     errors.append(f"condition {i}: missing '{key}'")
             if c.get("op") not in _ALLOWED_OPS:
                 errors.append(f"condition {i}: op must be one of {sorted(_ALLOWED_OPS)}")
+            if "mac" in c and not (isinstance(c["mac"], str)
+                                   and _DEVICE_ID.match(c["mac"])):
+                errors.append(f"condition {i}: mac must look like "
+                              f"AA:BB:CC:DD:EE:FF (see list_sensors)")
     action = spec.get("action", {})
     if action.get("type") not in _ALLOWED_ACTIONS:
         errors.append(f"action.type must be one of {sorted(_ALLOWED_ACTIONS)}")

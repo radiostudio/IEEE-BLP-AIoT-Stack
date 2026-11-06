@@ -50,4 +50,5 @@ class Pipeline:
                 frame.seq, frame.status, values, mac=frame.mac)
             self.frames_stored += 1
         if self.rule_engine is not None:
-            self.rule_engine.evaluate(frame.uid, values, frame.status)
+            self.rule_engine.evaluate(frame.uid, values, frame.status,
+                                      mac=frame.mac)

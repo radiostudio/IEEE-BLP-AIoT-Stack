@@ -53,13 +53,24 @@ the radio adds to every advertisement; no firmware change is needed.
   (`1:1 | 02:00:…:01`, `1:1 | 02:00:…:02`); History has one card per device.
 - `/api/latest/<uid>?mac=<mac>` and `/api/series/<uid>/<field>?mac=<mac>`
   select one device. Without `mac` they read every device under the ID.
+- MCP tools: `list_sensors` has one entry per device. `read_latest`,
+  `query_timeseries` and `validate_reading` take an optional `mac`; without
+  it, an ID with one device answers as before (plus `mac`), an ID with
+  several answers per device under `devices`, never mixed. From the CLI:
+  `python -m gateway tool read_latest 1:2 --mac AC:15:18:EE:78:8E`.
+- Grafana: a **Device** dropdown, one line per device (`1:2 AC:15:…`) and a
+  Device ID column in the last-frame table.
+- Recipes (`recipe <name>`) list each device separately in the evidence pack
+  and add a caveat; liveness notes name the MAC.
+- Rules: a condition may name a device with `"mac"`. Without it the condition
+  holds when any device under the ID meets it; each device keeps its own
+  value and timers, so a faulty device (`sensor_ok` off) does not block a
+  healthy one.
 - On macOS the operating system hides the MAC and gives a per-computer ID
   instead; it still tells devices apart, but differs from the real address.
 - A database made before this change is refused at startup ("old database
   format"); see "Reset the data" below.
-- Not yet per device: Grafana (two devices under one ID become one averaged
-  line), the MCP tools other than the dashboard's, and rules (a rule on `1:1`
-  fires on either device).
+- Relay commands are still addressed by kit ID only.
 
 Try it without hardware: `python -m gateway simulate --twin 1` adds a second
 DS18B20 under kit 1.
@@ -268,9 +279,10 @@ Grafana itself.
   about 10 s).
 - Units, sensor health and delivery ratio are not in InfluxDB; they stay on
   the gateway dashboard (port 8931).
-- Two devices under one sensor ID (see "Devices that share a sensor ID") are
-  averaged into one line here for now; the gateway dashboard shows them
-  apart.
+- **Device** dropdown: the MACs of the selected sensors. Two devices under one
+  sensor ID (see "Devices that share a sensor ID") get one line each,
+  labelled `<sensor> <MAC>`, and one row each in "Last frame per device".
+  "All" also includes readings stored without a MAC.
 
 ### Analysis libraries in the image
 

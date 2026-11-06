@@ -199,18 +199,19 @@ def cmd_tool(args) -> None:
     elif name == "describe_sensor":
         out = describe_sensor(ctx, a[0])
     elif name == "read_latest":
-        out = read_latest(ctx, a[0])
+        out = read_latest(ctx, a[0], mac=args.mac)
     elif name == "validate_reading":
         # optional third arg: a hypothetical value to test ("what if it read 1000?")
         value = float(a[2]) if len(a) > 2 else None
-        out = validate_reading(ctx, a[0], a[1], value)
+        out = validate_reading(ctx, a[0], a[1], value, mac=args.mac)
     elif name == "query_timeseries":
         # args: uid field minutes [agg]; minutes-ago windowing beats epoch
         # seconds for humans at a terminal
         minutes = float(a[2]) if len(a) > 2 else 60
         agg = a[3] if len(a) > 3 else None
         out = query_timeseries(ctx, a[0], a[1],
-                               time.time() - minutes * 60, time.time(), agg)
+                               time.time() - minutes * 60, time.time(), agg,
+                               mac=args.mac)
     elif name == "annotate":
         out = annotate(ctx, a[0], a[1] if len(a) > 1 else None, author="student")
     elif name == "list_annotations":
@@ -285,6 +286,8 @@ def main() -> None:
     s = sub.add_parser("tool", help="call a gateway tool from the CLI (no LLM needed)")
     s.add_argument("name")
     s.add_argument("args", nargs="*")   # tool-specific positional arguments, documented in the workshop workflow doc
+    s.add_argument("--mac", help="one device of the sensor uid (read_latest, "
+                                 "query_timeseries, validate_reading)")
     s.set_defaults(fn=cmd_tool)
 
     args = p.parse_args()
