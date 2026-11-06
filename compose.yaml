@@ -25,10 +25,19 @@ x-gateway-env: &gateway-env
   # approved rules and the capability token live next to the SQLite files
   GATEWAY_RULES_DIR: /app/gateway/data/rules.d
 
+# Docker keeps every log line by default and the root partition on the Uno Q
+# is small: at most 3 files of 10 MB per container, oldest dropped first.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   influxdb:
     image: influxdb:1.13.1
     restart: unless-stopped
+    logging: *logging
     environment:
       INFLUXDB_REPORTING_DISABLED: "true"
       INFLUXDB_HTTP_LOG_ENABLED: "false"
@@ -49,6 +58,7 @@ services:
     image: aiot-blp-gateway:local
     command: ["run"]
     restart: unless-stopped
+    logging: *logging
     init: true
     environment: *gateway-env
     depends_on:
@@ -73,6 +83,7 @@ services:
     pull_policy: never
     command: ["mcp"]
     restart: unless-stopped
+    logging: *logging
     init: true
     environment: *gateway-env
     depends_on:
@@ -86,6 +97,7 @@ services:
   grafana:
     image: grafana/grafana:13.2.5
     restart: unless-stopped
+    logging: *logging
     environment:
       INFLUX_DB: ${INFLUX_DB:-aiot_blp}  # read by the provisioned data source
       GF_SECURITY_ADMIN_USER: admin

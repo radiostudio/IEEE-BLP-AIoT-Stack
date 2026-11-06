@@ -73,6 +73,8 @@
     frame per device".
 
 ### Changed
+- `compose.yaml`: container logs are capped at 3 files of 10 MB per service
+  (json-file `max-size`/`max-file`); Docker kept every line before.
 - `compose.yaml`: only the `gateway` service builds the image; `mcp` reuses
   it (`pull_policy: never`). Each `--build` used to build it twice and leave
   an extra `<none>` image behind.

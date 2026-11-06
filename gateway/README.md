@@ -248,8 +248,9 @@ VM with no access to the laptop's Bluetooth.
 | SQLite backend database (if `GATEWAY_STORE_BACKEND=sqlite`) | `gateway/data/gateway.db`, the same file a native run uses |
 | Approved rules, capability token | `gateway/data/rules.d/`, `gateway/data/.capability_token` (shipped rules are copied in on first start) |
 
-Files in `gateway/data/` are created by the container as root; use `sudo` to
-delete them. `docker compose down` keeps all data; `docker compose down -v`
+Container logs (`docker compose logs`) are capped at 3 files of 10 MB per
+service, so older lines drop off. Files in `gateway/data/` are created by the
+container as root; use `sudo` to delete them. `docker compose down` keeps all data; `docker compose down -v`
 also deletes the InfluxDB and Grafana volumes.
 
 ### Grafana
