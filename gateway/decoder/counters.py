@@ -57,7 +57,7 @@ class CounterTracker:
                 continue
             raw = int(values[name])
             level = values.get(spec.get("level_field", ""), 0)
-            key = (frame.uid, name)
+            key = (frame.device_key, name)
             t = self._tracks.get(key)
 
             if t is None:

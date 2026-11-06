@@ -48,6 +48,8 @@
   .dot.bad { background: var(--bad); }
   .dot.old { background: #b9b9b9; }
   .sens .uid { color: var(--blue); font-weight: 700; }
+  .sens .mac { color: var(--mute); font-family: ui-monospace, monospace; font-size: .74rem; flex: none; }
+  td.mac { font-family: ui-monospace, monospace; font-size: .8rem; white-space: nowrap; }
   /* long part names are cut with "…"; the full name is in the tooltip */
   .sens .part { color: var(--mute); overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
   .pill { font-size: .7rem; color: var(--mute); border: 1px solid var(--line); border-radius: 99px; padding: 0 .45rem; background: #fff; }
@@ -83,7 +85,7 @@
 
 <section id="tab-live">
   <div class="tblbox"><table id="tbl"><thead>
-  <tr><th>UID</th><th>Part</th><th>Latest values</th><th>Age</th><th>Status</th><th>Delivery</th></tr>
+  <tr><th>UID</th><th>Part</th><th>Device ID</th><th>Latest values</th><th>Age</th><th>Status</th><th>Delivery</th></tr>
   </thead><tbody></tbody></table></div>
 </section>
 
@@ -108,8 +110,12 @@ const DP = { current_a: 3, load_current_rms_a: 3 };
 const fmt = (field, v) => Number(v).toFixed(DP[field] ?? 2);
 // card units as written in the sensor cards -> how the charts show them
 const UNIT = { degC: '°C' };
-// "1:2" before "1:10"
-const byUid = (a, b) => a.uid.localeCompare(b.uid, undefined, { numeric: true });
+// "1:2" before "1:10"; devices sharing a UID sorted by MAC
+const byUid = (a, b) => a.uid.localeCompare(b.uid, undefined, { numeric: true }) ||
+  (a.mac ?? '').localeCompare(b.mac ?? '');
+// one device = UID + MAC; two nodes can share a UID (same kit ID and type)
+const devKey = s => s.uid + '@' + (s.mac ?? '');
+const macQ = s => '?mac=' + encodeURIComponent(s.mac ?? '');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 function setText(el, text) { if (el.textContent !== text) el.textContent = text; }
 function setClass(el, cls) { if (el.className !== cls) el.className = cls; }
@@ -134,18 +140,23 @@ window.addEventListener('hashchange', showTab);
 
 // ---------------------------------------------------------------- live
 
-// rows[uid] = {tr, part, vals, age, status, dlv}: built once, then only their text changes
+// rows[devKey] = {tr, part, vals, age, status, dlv}: built once, then only their text changes
 const rows = {};
 let refreshing = false;
 
-function ensureRow(uid) {
-  if (rows[uid]) return rows[uid];
+function ensureRow(s) {
+  const key = devKey(s);
+  if (rows[key]) return rows[key];
   const tr = document.createElement('tr');
   const td = () => tr.appendChild(document.createElement('td'));
-  td().textContent = uid;
-  rows[uid] = { tr, part: td(), vals: td(), age: td(), status: td(), dlv: td() };
+  td().textContent = s.uid;
+  const part = td();
+  const mac = td();
+  mac.className = 'mac';
+  mac.textContent = s.mac || '-';
+  rows[key] = { tr, part, vals: td(), age: td(), status: td(), dlv: td() };
   document.querySelector('#tbl tbody').appendChild(tr);
-  return rows[uid];
+  return rows[key];
 }
 
 function statusText(s) { return (s.sensor_ok ? 'ok' : 'FAULT') + (s.low_batt ? ' / low batt' : ''); }
@@ -156,14 +167,14 @@ async function refresh() {
   try {
     const sensors = (await getJSON('/api/sensors')).sort(byUid);
     const latests = await Promise.all(sensors.map(s =>
-      getJSON('/api/latest/' + encodeURIComponent(s.uid)).catch(() => null)));
+      getJSON('/api/latest/' + encodeURIComponent(s.uid) + macQ(s)).catch(() => null)));
     const now = Date.now() / 1000;
     const seen = new Set();
     let online = 0;
     sensors.forEach((s, i) => {
-      seen.add(s.uid);
+      seen.add(devKey(s));
       if (s.last_seen_s_ago < 60) online++;
-      const row = ensureRow(s.uid);
+      const row = ensureRow(s);
       setText(row.part, s.part ?? '');
       updateSensorLines(s);
       const latest = latests[i];
@@ -183,17 +194,17 @@ async function refresh() {
       setClass(row.tr, !has || age > 60 ? 'stale' : '');
       if (latest.fields) {
         for (const [field, f] of Object.entries(latest.fields)) {
-          addLive(s.uid, field, now - (f.age_s || 0), Number(f.value));
+          addLive(devKey(s), field, now - (f.age_s || 0), Number(f.value));
         }
       }
     });
-    for (const uid of Object.keys(rows)) {
-      if (!seen.has(uid)) { rows[uid].tr.remove(); delete rows[uid]; }
+    for (const key of Object.keys(rows)) {
+      if (!seen.has(key)) { rows[key].tr.remove(); delete rows[key]; }
     }
     // keep rows in UID order; a sensor that appears later moves into place.
     // Rows are only moved when the order is off, so a normal tick moves nothing.
     const tbody = document.querySelector('#tbl tbody');
-    const want = sensors.map(s => rows[s.uid].tr);
+    const want = sensors.map(s => rows[devKey(s)].tr);
     if (want.some((tr, i) => tbody.children[i] !== tr)) want.forEach(tr => tbody.appendChild(tr));
     const on = document.getElementById('online');
     setText(on, `${online} of ${sensors.length} online`);
@@ -213,8 +224,8 @@ const hist = {
   loading: false,
   token: 0,            // bumps on every load, so a slow older load is discarded
   updated: 0,
-  sens: {},            // uid -> [{card, dot, status, dlv}], one per chart of that sensor
-  charts: {},          // uid|field -> chart
+  sens: {},            // devKey -> [{card, dot, status, dlv}], one per chart of that device
+  charts: {},          // devKey|field -> chart
   notes: [],
   cards: {},           // uid -> {part, units}
 };
@@ -233,7 +244,7 @@ function updateMeta() {
 }
 
 function updateSensorLines(s) {
-  for (const l of hist.sens[s.uid] || []) {
+  for (const l of hist.sens[devKey(s)] || []) {
     setClass(l.dot, 'dot' + (!s.sensor_ok ? ' bad' : s.last_seen_s_ago > 60 ? ' old' : ''));
     setText(l.status, statusText(s));
     setClass(l.status, s.sensor_ok ? 'pill ok' : 'pill bad');
@@ -243,31 +254,32 @@ function updateSensorLines(s) {
 }
 
 function makeChart(s, field, unit, grid) {
-  const uid = s.uid;
+  const uid = s.uid, key = devKey(s);
   const card = document.createElement('div');
   card.className = 'card';
-  card.innerHTML = '<div class="sens"><span class="dot"></span><span class="uid"></span><span class="part"></span>' +
+  card.innerHTML = '<div class="sens"><span class="dot"></span><span class="uid"></span><span class="mac"></span><span class="part"></span>' +
     '<span class="pill"></span><span class="pill dlv"></span></div>' +
     '<div class="hd"><span class="nm"></span><span class="unit"></span>' +
     '<button class="expand" type="button">Expand</button><span class="cur">-</span></div>' +
     '<div class="stats"></div>';
   card.querySelector('.uid').textContent = uid;
+  card.querySelector('.mac').textContent = s.mac ? '· ' + s.mac : '';
   card.querySelector('.part').textContent = s.part ?? '';
   card.querySelector('.part').title = s.part ?? '';
-  (hist.sens[uid] ||= []).push({ card, dot: card.querySelector('.dot'),
+  (hist.sens[key] ||= []).push({ card, dot: card.querySelector('.dot'),
     status: card.querySelector('.pill'), dlv: card.querySelector('.dlv') });
   card.querySelector('.nm').textContent = field;
   card.querySelector('.unit').textContent = unit ?? '';
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', `${uid} ${field} history`);
+  svg.setAttribute('aria-label', `${uid} ${s.mac ?? ''} ${field} history`);
   card.appendChild(svg);
   const tip = document.createElement('div');
   tip.className = 'tip';
   tip.hidden = true;
   card.appendChild(tip);
   grid.appendChild(card);
-  const c = { uid, field, unit, pts: [], live: null, wide: false, geo: null,
+  const c = { uid, key, field, unit, pts: [], live: null, wide: false, geo: null,
               el: { card, svg, tip, cur: card.querySelector('.cur'), stats: card.querySelector('.stats'),
                     btn: card.querySelector('.expand') } };
   c.el.btn.addEventListener('click', () => {
@@ -278,7 +290,7 @@ function makeChart(s, field, unit, grid) {
   });
   svg.addEventListener('mousemove', e => hover(c, e));
   svg.addEventListener('mouseleave', () => { tip.hidden = true; const h = svg.querySelector('.hv'); if (h) h.remove(); });
-  hist.charts[uid + '|' + field] = c;
+  hist.charts[key + '|' + field] = c;
   return c;
 }
 
@@ -294,11 +306,11 @@ async function loadHistory() {
     const loaded = await Promise.all(sensors.map(async s => {
       const uid = encodeURIComponent(s.uid);
       if (!hist.cards[s.uid]) hist.cards[s.uid] = await getJSON('/api/card/' + uid).catch(() => ({}));
-      const latest = await getJSON('/api/latest/' + uid).catch(() => ({}));
+      const latest = await getJSON('/api/latest/' + uid + macQ(s)).catch(() => ({}));
       const fields = Object.keys(latest.fields || {});
       const series = {};
       for (const f of fields) {
-        const r = await getJSON(`/api/series/${uid}/${encodeURIComponent(f)}?since=${win}&agg=band&bucket=${bucket}`)
+        const r = await getJSON(`/api/series/${uid}/${encodeURIComponent(f)}${macQ(s)}&since=${win}&agg=band&bucket=${bucket}`)
           .catch(() => ({}));
         series[f] = (r.points || []).filter(p => isFinite(p.value)).map(p =>
           ({ ts: p.ts, value: p.value, min: p.min ?? p.value, max: p.max ?? p.value, n: p.n || 1 }));
@@ -310,7 +322,7 @@ async function loadHistory() {
     const box = document.getElementById('grid');
     box.textContent = '';
     hist.sens = {};
-    const wide = new Set(Object.values(hist.charts).filter(c => c.wide).map(c => c.uid + '|' + c.field));
+    const wide = new Set(Object.values(hist.charts).filter(c => c.wide).map(c => c.key + '|' + c.field));
     hist.charts = {};
     hist.notes = notes;
     const sel = document.getElementById('sensor');
@@ -319,8 +331,8 @@ async function loadHistory() {
     for (const { s, latest, fields, series } of loaded) {
       if (!fields.length) continue;
       const opt = document.createElement('option');
-      opt.value = s.uid;
-      opt.textContent = `${s.uid} ${s.part ?? ''}`;
+      opt.value = devKey(s);
+      opt.textContent = `${s.uid} ${s.mac ?? ''} ${s.part ?? ''}`;
       sel.appendChild(opt);
       const units = (hist.cards[s.uid] || {}).units || {};
       for (const f of fields) {
@@ -328,7 +340,7 @@ async function loadHistory() {
         c.pts = series[f];
         const lf = latest.fields[f];
         setCur(c, lf.value);
-        if (wide.has(s.uid + '|' + f)) c.el.btn.click();
+        if (wide.has(devKey(s) + '|' + f)) c.el.btn.click();
       }
       updateSensorLines(s);
     }
@@ -348,8 +360,8 @@ function setCur(c, v) {
 
 // New live readings go into the newest bucket, so the chart keeps moving
 // between loads without mixing raw points into bucketed ones.
-function addLive(uid, field, ts, v) {
-  const c = hist.charts[uid + '|' + field];
+function addLive(key, field, ts, v) {
+  const c = hist.charts[key + '|' + field];
   if (!c || !isFinite(v)) return;
   if (c.live !== null && Math.abs(ts - c.live) < 0.5) return;   // same reading as the last poll
   c.live = ts;
@@ -375,7 +387,7 @@ function drawAll() { if (tab === 'history') Object.values(hist.charts).forEach(d
 
 function applyFilter() {
   const pick = document.getElementById('sensor').value;
-  for (const c of Object.values(hist.charts)) c.el.card.hidden = !!pick && c.uid !== pick;
+  for (const c of Object.values(hist.charts)) c.el.card.hidden = !!pick && c.key !== pick;
   drawAll();
 }
 

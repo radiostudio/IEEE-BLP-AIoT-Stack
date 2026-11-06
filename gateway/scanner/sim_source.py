@@ -25,8 +25,10 @@ def _diurnal(base: float, swing: float, phase: float = 0.0) -> float:
 
 
 class _Sim:
-    def __init__(self, type_id: int, period_s: float, gen: Callable[["_Sim"], bytes]):
+    def __init__(self, type_id: int, period_s: float, gen: Callable[["_Sim"], bytes],
+                 mac: str = ""):
         self.type_id = type_id
+        self.mac = mac
         self.period_s = period_s
         self.gen = gen
         self.seq = random.randint(0, 1000)
@@ -52,6 +54,7 @@ class _Sim:
             kit_id=kit_id, sensor_type_id=self.type_id, schema_version=1,
             seq=self.seq, tick_ms=int((time.monotonic() - self.boot) * 1000),
             status=status, payload=payload, rx_time=time.time(), rssi=-60,
+            mac=self.mac,
         )
 
 
@@ -178,16 +181,26 @@ GENERATORS = {
 }
 
 
+def sim_mac(kit_id: int, type_id: int, n: int = 1) -> str:
+    """Fake MAC for simulated node n of a type: 02:00:00:<kit>:<type>:<n>.
+    02 marks a locally administered address, so it never matches real hardware."""
+    return f"02:00:00:{kit_id & 0xFF:02X}:{type_id & 0xFF:02X}:{n & 0xFF:02X}"
+
+
 class SimulatedSource:
-    """Drop-in replacement for BleSource: same run(on_frame) contract."""
+    """Drop-in replacement for BleSource: same run(on_frame) contract.
+
+    twins: type IDs that get a second node under the same kit ID, so two
+    devices of one type can be tested without hardware."""
 
     def __init__(self, kit_id: int = 1, types: list[int] | None = None,
-                 speedup: float = 1.0):
+                 speedup: float = 1.0, twins: list[int] | None = None):
         self.kit_id = kit_id
         self.sims = [
-            _Sim(tid, period / speedup, gen)
+            _Sim(tid, period / speedup, gen, sim_mac(kit_id, tid, n))
             for tid, (period, gen) in GENERATORS.items()
             if types is None or tid in types
+            for n in ((1, 2) if tid in (twins or ()) else (1,))
         ]
 
     def inject_fault(self, type_id: int, fault: str | None) -> None:

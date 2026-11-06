@@ -50,10 +50,18 @@ class RawFrame:
     payload: bytes
     rx_time: float = field(default_factory=time.time)
     rssi: int | None = None
+    # sender's Bluetooth address, added by the radio, not part of the payload.
+    # Two nodes with the same kit ID and type share a uid but not a mac.
+    mac: str = ""
 
     @property
     def uid(self) -> str:
         return f"{self.kit_id}:{self.sensor_type_id}"
+
+    @property
+    def device_key(self) -> str:
+        """uid plus mac: what per-device state (dedupe, counters, timing) keys on."""
+        return f"{self.uid}@{self.mac}"
 
     @property
     def sensor_ok(self) -> bool:
@@ -61,7 +69,7 @@ class RawFrame:
 
 
 def parse_manufacturer_data(data: bytes, rx_time: float | None = None,
-                            rssi: int | None = None) -> RawFrame | None:
+                            rssi: int | None = None, mac: str = "") -> RawFrame | None:
     """Parse the bytes that follow the company ID. Returns None on malformed frames."""
     if len(data) < HEADER_LEN:
         return None
@@ -76,6 +84,7 @@ def parse_manufacturer_data(data: bytes, rx_time: float | None = None,
         payload=bytes(data[HEADER_LEN:]),
         rx_time=rx_time if rx_time is not None else time.time(),
         rssi=rssi,
+        mac=mac.upper(),
     )
 
 

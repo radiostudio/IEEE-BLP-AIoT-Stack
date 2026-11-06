@@ -43,7 +43,7 @@ class Reconciler:
         self._tracks: dict[str, _SensorTrack] = {}
 
     def observe(self, frame: RawFrame) -> dict:
-        t = self._tracks.setdefault(frame.uid, _SensorTrack())
+        t = self._tracks.setdefault(frame.device_key, _SensorTrack())
         lost = 0
         if t.last_seq is not None:
             gap = (frame.seq - t.last_seq) % _SEQ_MOD

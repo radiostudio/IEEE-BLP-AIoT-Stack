@@ -31,9 +31,16 @@ from .influx import (ANNOTATIONS, JOURNAL_RP, RAW_RP, READINGS, ROLLUP,
 _EDGE_MARGIN_S = 3600
 
 
-def _tags(uid: str) -> dict:
+def _tags(uid: str, mac: str = "") -> dict:
     kit_id, _, type_id = uid.partition(":")
-    return {"sensor_uid": uid, "kit_id": kit_id, "sensor_type_id": type_id}
+    return {"sensor_uid": uid, "kit_id": kit_id, "sensor_type_id": type_id,
+            "mac": mac}
+
+
+def _mac_col(src: sqlite3.Connection, table: str) -> str:
+    """The mac column, or '' for a source made before it existed."""
+    cols = {r[1] for r in src.execute(f"PRAGMA table_info({table})")}
+    return "mac" if "mac" in cols else "''"
 
 
 class _Writer:
@@ -91,32 +98,35 @@ def migrate(cfg: dict, source: str | None = None, dry_run: bool = False) -> dict
 
     # readings -> raw, one point per frame
     cutoff = time.time() - raw_s + _EDGE_MARGIN_S
+    r_mac, a_mac = _mac_col(src, "readings"), _mac_col(src, "aggregates")
     rows = src.execute(
-        "SELECT sensor_uid, ts, seq, status, rx_time, field, value FROM readings"
-        " WHERE ts >= ? ORDER BY sensor_uid, ts, seq", (cutoff,))
-    for (uid, ts, seq, status, rx_time), grp in groupby(
-            rows, key=lambda r: r[:5]):
-        fields = {r[5]: r[6] for r in grp}
+        f"SELECT sensor_uid, {r_mac}, ts, seq, status, rx_time, field, value"
+        f" FROM readings WHERE ts >= ? ORDER BY sensor_uid, {r_mac}, ts, seq",
+        (cutoff,))
+    for (uid, mac, ts, seq, status, rx_time), grp in groupby(
+            rows, key=lambda r: r[:6]):
+        fields = {r[6]: r[7] for r in grp}
         fields.update(seq=seq, status=status, rx_time=rx_time)
-        w.add(RAW_RP, line(READINGS, _tags(uid), fields, int(ts * 1e9)))
+        w.add(RAW_RP, line(READINGS, _tags(uid, mac), fields, int(ts * 1e9)))
     summary["raw_points"] = w.written.get(RAW_RP, 0)
 
     # aggregates, then all readings -> rollup buckets. Same series and time
     # means InfluxDB merges the fields of both into one point.
     def rollup(sql: str, args: tuple = ()) -> None:
         cur = src.execute(sql, args)
-        for (uid, bucket), grp in groupby(cur, key=lambda r: r[:2]):
+        for (uid, mac, bucket), grp in groupby(cur, key=lambda r: r[:3]):
             fields = {}
-            for _, _, field, n, vmin, vmax, vmean in grp:
+            for _, _, _, field, n, vmin, vmax, vmean in grp:
                 fields.update({f"mean_{field}": vmean, f"min_{field}": vmin,
                                f"max_{field}": vmax, f"count_{field}": n})
-            w.add(ROLLUP_RP, line(ROLLUP, _tags(uid), fields, int(bucket * 1e9)))
+            w.add(ROLLUP_RP, line(ROLLUP, _tags(uid, mac), fields,
+                                  int(bucket * 1e9)))
 
-    rollup("SELECT sensor_uid, bucket, field, n, vmin, vmax, vmean"
-           " FROM aggregates ORDER BY sensor_uid, bucket")
-    rollup("SELECT sensor_uid, CAST(ts/? AS INTEGER)*? AS bucket, field,"
-           " COUNT(*), MIN(value), MAX(value), AVG(value) FROM readings"
-           " GROUP BY sensor_uid, bucket, field ORDER BY sensor_uid, bucket",
+    rollup(f"SELECT sensor_uid, {a_mac}, bucket, field, n, vmin, vmax, vmean"
+           f" FROM aggregates ORDER BY sensor_uid, {a_mac}, bucket")
+    rollup(f"SELECT sensor_uid, {r_mac} AS m, CAST(ts/? AS INTEGER)*? AS bucket,"
+           f" field, COUNT(*), MIN(value), MAX(value), AVG(value) FROM readings"
+           f" GROUP BY sensor_uid, m, bucket, field ORDER BY sensor_uid, m, bucket",
            (period, period))
     summary["rollup_points"] = w.written.get(ROLLUP_RP, 0)
 
@@ -129,8 +139,9 @@ def migrate(cfg: dict, source: str | None = None, dry_run: bool = False) -> dict
     summary["points_beyond_retention_dropped"] = w.dropped
 
     sensors = src.execute(
-        "SELECT uid, kit_id, sensor_type_id, schema_version, part, first_seen,"
-        " last_seen, last_status, rx_count, lost_count FROM sensors").fetchall()
+        f"SELECT uid, {_mac_col(src, 'sensors')}, kit_id, sensor_type_id,"
+        f" schema_version, part, first_seen, last_seen, last_status, rx_count,"
+        f" lost_count FROM sensors").fetchall()
     experiments = src.execute(
         "SELECT name, sensors, started, ended, sampling, notes FROM experiments"
     ).fetchall()
@@ -143,11 +154,12 @@ def migrate(cfg: dict, source: str | None = None, dry_run: bool = False) -> dict
             # source's (disjoint periods); once merged, first_seen is the
             # older value and a re-run leaves the row alone.
             meta._conn.executemany(
-                """INSERT INTO sensors (uid, kit_id, sensor_type_id, schema_version,
-                                        part, first_seen, last_seen, last_status,
-                                        rx_count, lost_count)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)
-                   ON CONFLICT(uid) DO UPDATE SET
+                """INSERT INTO sensors (uid, mac, kit_id, sensor_type_id,
+                                        schema_version, part, first_seen,
+                                        last_seen, last_status, rx_count,
+                                        lost_count)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(uid, mac) DO UPDATE SET
                      first_seen=excluded.first_seen,
                      rx_count=rx_count+excluded.rx_count,
                      lost_count=lost_count+excluded.lost_count

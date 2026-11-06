@@ -2,7 +2,8 @@
 
 A SIM repeats each advertisement many times within its interval so that at
 least one copy survives the scan window. Downstream must see each (kit, type,
-seq) exactly once.
+mac, seq) exactly once; the mac keeps two nodes that share a kit ID and type
+from dropping each other's frames.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ class Deduper:
         self._seen: dict[str, list[int]] = {}
 
     def accept(self, frame: RawFrame) -> bool:
-        recent = self._seen.setdefault(frame.uid, [])
+        recent = self._seen.setdefault(frame.device_key, [])
         if frame.seq in recent:
             return False
         recent.append(frame.seq)

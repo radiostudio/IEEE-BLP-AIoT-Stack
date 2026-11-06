@@ -34,19 +34,20 @@ class Pipeline:
         card, values = self.registry.decode(frame)
         if card is not None:
             values = self.counters.apply(frame, card, values)
-        if frame.uid not in self._announced:
-            self._announced.add(frame.uid)
+        if frame.device_key not in self._announced:
+            self._announced.add(frame.device_key)
             pretty = "  ".join(f"{k}={v:.2f}" for k, v in values.items())
-            print(f"[gateway] {frame.uid} ({card.part if card else 'no card'}) "
-                  f"online: {pretty}")
+            print(f"[gateway] {frame.uid} {frame.mac or '(no mac)'} "
+                  f"({card.part if card else 'no card'}) online: {pretty}")
         recon = self.reconciler.observe(frame)
         self.store.upsert_sensor(
             frame.uid, frame.kit_id, frame.sensor_type_id, frame.schema_version,
-            card.part if card else None, frame.status, recon["lost_since_last"])
+            card.part if card else None, frame.status, recon["lost_since_last"],
+            mac=frame.mac)
         if values:
             self.store.insert_readings(
                 frame.uid, recon["corrected_time"], frame.rx_time,
-                frame.seq, frame.status, values)
+                frame.seq, frame.status, values, mac=frame.mac)
             self.frames_stored += 1
         if self.rule_engine is not None:
             self.rule_engine.evaluate(frame.uid, values, frame.status)

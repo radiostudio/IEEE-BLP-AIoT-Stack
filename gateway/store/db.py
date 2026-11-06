@@ -15,7 +15,8 @@ from pathlib import Path
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sensors (
-    uid TEXT PRIMARY KEY,
+    uid TEXT NOT NULL,
+    mac TEXT NOT NULL DEFAULT '',  -- sender's Bluetooth address; one row per device
     kit_id INTEGER NOT NULL,
     sensor_type_id INTEGER NOT NULL,
     schema_version INTEGER NOT NULL,
@@ -24,11 +25,13 @@ CREATE TABLE IF NOT EXISTS sensors (
     last_seen REAL NOT NULL,
     last_status INTEGER DEFAULT 0,
     rx_count INTEGER DEFAULT 0,
-    lost_count INTEGER DEFAULT 0
+    lost_count INTEGER DEFAULT 0,
+    PRIMARY KEY (uid, mac)
 );
 CREATE TABLE IF NOT EXISTS readings (
     id INTEGER PRIMARY KEY,
     sensor_uid TEXT NOT NULL,
+    mac TEXT NOT NULL DEFAULT '',
     ts REAL NOT NULL,            -- reconciled time (tick-corrected), epoch seconds
     rx_time REAL NOT NULL,       -- raw arrival time, kept for the QoS lesson
     seq INTEGER NOT NULL,
@@ -36,15 +39,16 @@ CREATE TABLE IF NOT EXISTS readings (
     value REAL NOT NULL,
     status INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_readings ON readings (sensor_uid, field, ts);
+CREATE INDEX IF NOT EXISTS idx_readings ON readings (sensor_uid, mac, field, ts);
 CREATE TABLE IF NOT EXISTS aggregates (
     sensor_uid TEXT NOT NULL,
+    mac TEXT NOT NULL DEFAULT '',
     field TEXT NOT NULL,
     bucket REAL NOT NULL,        -- bucket start, epoch seconds
     period_s INTEGER NOT NULL,
     n INTEGER NOT NULL,
     vmin REAL, vmax REAL, vmean REAL,
-    PRIMARY KEY (sensor_uid, field, bucket, period_s)
+    PRIMARY KEY (sensor_uid, mac, field, bucket, period_s)
 );
 CREATE TABLE IF NOT EXISTS annotations (
     id INTEGER PRIMARY KEY,
@@ -65,6 +69,16 @@ CREATE TABLE IF NOT EXISTS experiments (
 """
 
 
+class OldDatabaseFormat(RuntimeError):
+    """The file predates the mac column. There is no migration: back the file
+    up and delete it, and the gateway creates a new one."""
+
+
+def _mac_filter(mac: str | None) -> tuple[str, tuple]:
+    # None: every device under the uid; a string (even ""): that device only
+    return ("", ()) if mac is None else (" AND mac=?", (mac,))
+
+
 class Store:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
@@ -73,6 +87,13 @@ class Store:
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(sensors)")}
+        if cols and "mac" not in cols:
+            self._conn.close()
+            raise OldDatabaseFormat(
+                f"{self.db_path} is in the old format (no device MAC column). "
+                f"Back it up and delete it; the gateway then starts a new one. "
+                f"See gateway/README.md, \"Reset the data\".")
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
 
@@ -86,47 +107,51 @@ class Store:
     # -- ingest ------------------------------------------------------------
 
     def upsert_sensor(self, uid: str, kit_id: int, type_id: int, schema: int,
-                      part: str | None, status: int, lost: int) -> None:
+                      part: str | None, status: int, lost: int,
+                      mac: str = "") -> None:
         now = time.time()
         with self._lock:
             self._conn.execute(
-                """INSERT INTO sensors (uid, kit_id, sensor_type_id, schema_version,
+                """INSERT INTO sensors (uid, mac, kit_id, sensor_type_id, schema_version,
                                         part, first_seen, last_seen, last_status,
                                         rx_count, lost_count)
-                   VALUES (?,?,?,?,?,?,?,?,1,?)
-                   ON CONFLICT(uid) DO UPDATE SET
+                   VALUES (?,?,?,?,?,?,?,?,?,1,?)
+                   ON CONFLICT(uid, mac) DO UPDATE SET
                      last_seen=excluded.last_seen,
                      last_status=excluded.last_status,
                      rx_count=rx_count+1,
                      lost_count=lost_count+?""",
-                (uid, kit_id, type_id, schema, part, now, now, status, lost, lost))
+                (uid, mac, kit_id, type_id, schema, part, now, now, status, lost, lost))
             self._conn.commit()
 
     def insert_readings(self, sensor_uid: str, ts: float, rx_time: float,
-                        seq: int, status: int, values: dict[str, float]) -> None:
-        rows = [(sensor_uid, ts, rx_time, seq, f, v, status)
+                        seq: int, status: int, values: dict[str, float],
+                        mac: str = "") -> None:
+        rows = [(sensor_uid, mac, ts, rx_time, seq, f, v, status)
                 for f, v in values.items()]
         with self._lock:
             self._conn.executemany(
-                "INSERT INTO readings (sensor_uid, ts, rx_time, seq, field, value, status)"
-                " VALUES (?,?,?,?,?,?,?)", rows)
+                "INSERT INTO readings (sensor_uid, mac, ts, rx_time, seq, field, value, status)"
+                " VALUES (?,?,?,?,?,?,?,?)", rows)
             self._conn.commit()
 
     # -- query -------------------------------------------------------------
 
     def list_sensors(self) -> list[dict]:
         with self._lock:
-            cur = self._conn.execute("SELECT * FROM sensors ORDER BY uid")
+            cur = self._conn.execute("SELECT * FROM sensors ORDER BY uid, mac")
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
 
-    def read_latest(self, sensor_uid: str) -> dict:
+    def read_latest(self, sensor_uid: str, mac: str | None = None) -> dict:
+        m_sql, m_args = _mac_filter(mac)
         with self._lock:
             cur = self._conn.execute(
-                """SELECT field, value, ts, status FROM readings
-                   WHERE sensor_uid=? AND id IN (
-                     SELECT MAX(id) FROM readings WHERE sensor_uid=? GROUP BY field)""",
-                (sensor_uid, sensor_uid))
+                f"""SELECT field, value, ts, status FROM readings
+                   WHERE id IN (
+                     SELECT MAX(id) FROM readings WHERE sensor_uid=?{m_sql}
+                     GROUP BY field)""",
+                (sensor_uid, *m_args))
             out = {}
             for f, v, ts, status in cur.fetchall():
                 out[f] = {"value": v, "ts": ts, "status": status}
@@ -134,33 +159,35 @@ class Store:
 
     def query_timeseries(self, sensor_uid: str, field: str,
                          start: float, end: float,
-                         agg: str | None = None, bucket_s: int = 60) -> list[dict]:
+                         agg: str | None = None, bucket_s: int = 60,
+                         mac: str | None = None) -> list[dict]:
+        m_sql, m_args = _mac_filter(mac)
         with self._lock:
             if agg in ("mean", "min", "max"):
                 fn = {"mean": "AVG", "min": "MIN", "max": "MAX"}[agg]
                 cur = self._conn.execute(
                     f"""SELECT CAST(ts/? AS INTEGER)*? AS bucket, {fn}(value), COUNT(*)
                         FROM readings
-                        WHERE sensor_uid=? AND field=? AND ts BETWEEN ? AND ?
+                        WHERE sensor_uid=?{m_sql} AND field=? AND ts BETWEEN ? AND ?
                         GROUP BY bucket ORDER BY bucket""",
-                    (bucket_s, bucket_s, sensor_uid, field, start, end))
+                    (bucket_s, bucket_s, sensor_uid, *m_args, field, start, end))
                 return [{"ts": b, "value": v, "n": n} for b, v, n in cur.fetchall()]
             if agg == "band":
                 # mean plus min/max per bucket, for charts that shade the spread
                 cur = self._conn.execute(
-                    """SELECT CAST(ts/? AS INTEGER)*? AS bucket, AVG(value),
+                    f"""SELECT CAST(ts/? AS INTEGER)*? AS bucket, AVG(value),
                               MIN(value), MAX(value), COUNT(*)
                        FROM readings
-                       WHERE sensor_uid=? AND field=? AND ts BETWEEN ? AND ?
+                       WHERE sensor_uid=?{m_sql} AND field=? AND ts BETWEEN ? AND ?
                        GROUP BY bucket ORDER BY bucket""",
-                    (bucket_s, bucket_s, sensor_uid, field, start, end))
+                    (bucket_s, bucket_s, sensor_uid, *m_args, field, start, end))
                 return [{"ts": b, "value": v, "min": lo, "max": hi, "n": n}
                         for b, v, lo, hi, n in cur.fetchall()]
             cur = self._conn.execute(
-                """SELECT ts, value, status FROM readings
-                   WHERE sensor_uid=? AND field=? AND ts BETWEEN ? AND ?
+                f"""SELECT ts, value, status FROM readings
+                   WHERE sensor_uid=?{m_sql} AND field=? AND ts BETWEEN ? AND ?
                    ORDER BY ts""",
-                (sensor_uid, field, start, end))
+                (sensor_uid, *m_args, field, start, end))
             return [{"ts": t, "value": v, "status": s} for t, v, s in cur.fetchall()]
 
     # -- annotations and experiments ---------------------------------------

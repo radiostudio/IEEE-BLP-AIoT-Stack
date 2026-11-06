@@ -63,8 +63,10 @@ class BleSource:
             data = adv.manufacturer_data.get(self.company_id)
             if data is None:
                 return
+            # device.address is the MAC on BlueZ and WinRT; macOS gives a
+            # per-computer UUID instead, which still tells devices apart
             frame = parse_manufacturer_data(bytes(data), rx_time=time.time(),
-                                            rssi=adv.rssi)
+                                            rssi=adv.rssi, mac=device.address or "")
             if frame is None:
                 return
             if self.kit_id is not None and frame.kit_id != self.kit_id:

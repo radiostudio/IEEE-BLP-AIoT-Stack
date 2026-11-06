@@ -80,6 +80,11 @@ def _literal(s: str) -> str:
     return "'" + str(s).replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
+def _mac_where(mac: str | None) -> str:
+    # None: every device; "" matches points written without a mac tag
+    return "" if mac is None else f" AND mac = {_literal(mac)}"
+
+
 def line(measurement: str, tags: dict, fields: dict, ts_ns: int) -> str | None:
     """One line-protocol point. Numbers are always written as floats: a
     field that is int in one point and float in the next is rejected by
@@ -290,13 +295,16 @@ class InfluxStore:
         self._meta.upsert_sensor(*args, **kwargs)
 
     def insert_readings(self, sensor_uid: str, ts: float, rx_time: float,
-                        seq: int, status: int, values: dict[str, float]) -> None:
+                        seq: int, status: int, values: dict[str, float],
+                        mac: str = "") -> None:
         if not values:
             return
         kit_id, _, type_id = sensor_uid.partition(":")
+        # mac is a tag, so each device is its own series; the rollup CQ
+        # groups by every tag and keeps it
         ln = line(READINGS,
                   {"sensor_uid": sensor_uid, "kit_id": kit_id,
-                   "sensor_type_id": type_id},
+                   "sensor_type_id": type_id, "mac": mac},
                   {**values, "seq": seq, "status": status, "rx_time": rx_time},
                   int(ts * 1e9))
         if ln:
@@ -307,15 +315,16 @@ class InfluxStore:
     def list_sensors(self) -> list[dict]:
         return self._meta.list_sensors()
 
-    def read_latest(self, sensor_uid: str) -> dict:
+    def read_latest(self, sensor_uid: str, mac: str | None = None) -> dict:
         self.flush()  # read-your-writes within this process
         q = (f"SELECT * FROM {_ident(RAW_RP)}.{_ident(READINGS)} "
-             f"WHERE sensor_uid = {_literal(sensor_uid)} "
+             f"WHERE sensor_uid = {_literal(sensor_uid)}{_mac_where(mac)} "
              f"ORDER BY time DESC LIMIT 1")
         out = {}
         for row in self._rows(self.query(q)):
             ts = row["time"] / 1e9
-            skip = {"time", "sensor_uid", "kit_id", "sensor_type_id", *FRAME_FIELDS}
+            skip = {"time", "sensor_uid", "kit_id", "sensor_type_id", "mac",
+                    *FRAME_FIELDS}
             for f, v in row.items():
                 if f not in skip and v is not None:
                     out[f] = {"value": v, "ts": ts,
@@ -324,29 +333,32 @@ class InfluxStore:
 
     def query_timeseries(self, sensor_uid: str, field: str,
                          start: float, end: float,
-                         agg: str | None = None, bucket_s: int = 60) -> list[dict]:
+                         agg: str | None = None, bucket_s: int = 60,
+                         mac: str | None = None) -> list[dict]:
         """Raw points (or buckets) from "raw"; the part of the window older
         than the raw retention comes from the rollups, at no finer than the
-        rollup period. Rollup points carry status None."""
+        rollup period. Rollup points carry status None. mac=None reads every
+        device under the uid."""
         self.flush()
         cutoff = time.time() - self.raw_retention_s
         points: list[dict] = []
         if start < cutoff:
             points += self._query_rollup(sensor_uid, field, start,
-                                         min(end, cutoff), agg, bucket_s)
+                                         min(end, cutoff), agg, bucket_s, mac)
         if end >= cutoff:
             points += self._query_raw(sensor_uid, field, max(start, cutoff),
-                                      end, agg, bucket_s)
+                                      end, agg, bucket_s, mac)
         return points
 
-    def _where(self, sensor_uid: str, start: float, end: float) -> str:
-        return (f"WHERE sensor_uid = {_literal(sensor_uid)} "
+    def _where(self, sensor_uid: str, start: float, end: float,
+               mac: str | None = None) -> str:
+        return (f"WHERE sensor_uid = {_literal(sensor_uid)}{_mac_where(mac)} "
                 f"AND time >= {int(start * 1e9)} AND time <= {int(end * 1e9)}")
 
-    def _query_raw(self, sensor_uid, field, start, end, agg, bucket_s):
+    def _query_raw(self, sensor_uid, field, start, end, agg, bucket_s, mac=None):
         src = f"{_ident(RAW_RP)}.{_ident(READINGS)}"
         f = _ident(field)
-        where = self._where(sensor_uid, start, end)
+        where = self._where(sensor_uid, start, end, mac)
         if agg in ("mean", "min", "max"):
             q = (f"SELECT {agg.upper()}({f}) AS value, COUNT({f}) AS n FROM {src} "
                  f"{where} GROUP BY time({int(bucket_s)}s) fill(none)")
@@ -364,9 +376,9 @@ class InfluxStore:
                  "status": int(r["status"] or 0)}
                 for r in self._rows(self.query(q)) if r.get(field) is not None]
 
-    def _query_rollup(self, sensor_uid, field, start, end, agg, bucket_s):
+    def _query_rollup(self, sensor_uid, field, start, end, agg, bucket_s, mac=None):
         src = f"{_ident(ROLLUP_RP)}.{_ident(ROLLUP)}"
-        where = self._where(sensor_uid, start, end)
+        where = self._where(sensor_uid, start, end, mac)
         mean_f, min_f, max_f, count_f = (_ident(f"{p}_{field}") for p in
                                          ("mean", "min", "max", "count"))
         if agg in ("mean", "min", "max"):

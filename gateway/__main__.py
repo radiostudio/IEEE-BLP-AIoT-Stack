@@ -2,6 +2,7 @@
 
   python -m gateway run          live BLE scan -> store (+rules, +dashboard)
   python -m gateway simulate     same pipeline fed by the 14-sensor simulator
+                                 (--twin 1: a second DS18B20 under the same kit ID)
   python -m gateway mcp          MCP server over stdio (for Claude)
   python -m gateway dashboard    dashboard only, against the existing database
   python -m gateway approve-rule <name>   activate a pending agent-authored rule
@@ -86,7 +87,7 @@ def cmd_simulate(args) -> None:
     if not args.no_dashboard:
         serve(ctx, port=args.port or cfg.get("dashboard_port", 8080),
               background=True)
-    src = SimulatedSource(kit_id=1, speedup=args.speedup)
+    src = SimulatedSource(kit_id=1, speedup=args.speedup, twins=args.twin)
     if args.fault:
         type_id, fault = args.fault.split(":")
         src.inject_fault(int(type_id), fault)
@@ -236,6 +237,9 @@ def main() -> None:
     s.add_argument("--port", type=int, default=None)
     s.add_argument("--speedup", type=float, default=1.0)
     s.add_argument("--fault", help="type_id:fault e.g. 1:stuck, 7:offset, 13:dead")
+    s.add_argument("--twin", type=int, action="append", metavar="TYPE_ID",
+                   help="add a second device of this sensor type under the same "
+                        "kit ID (different MAC); repeat for more types")
     s.set_defaults(fn=cmd_simulate)
 
     sub.add_parser("mcp").set_defaults(fn=cmd_mcp)
@@ -287,10 +291,11 @@ def main() -> None:
     # docker stop sends SIGTERM; exit through the normal path so queued
     # InfluxDB writes are flushed instead of lost
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    from .store.db import OldDatabaseFormat
     from .store.influx import InfluxUnavailable
     try:
         args.fn(args)
-    except InfluxUnavailable as exc:
+    except (InfluxUnavailable, OldDatabaseFormat) as exc:
         sys.exit(f"[gateway] {exc}")
 
 

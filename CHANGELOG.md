@@ -43,8 +43,27 @@
 - **Analysis libraries in the Docker image:** pandas, polars, pyarrow, cbor2,
   matplotlib (`MPLBACKEND=Agg`), plotly, `influxdb` and `influxdb-client`,
   listed in `gateway/requirements-docker.txt`. The native setup is unchanged.
+- **Device ID: devices that share a sensor ID are kept apart.** Two nodes of
+  one type with the same kit ID (both `1:1`) used to be merged into one
+  sensor, and one dropped the other's frames as duplicates. The gateway now
+  keeps the sender's Bluetooth MAC (`RawFrame.mac`) and keys dedupe, counter
+  tracking and time reconciliation on sensor ID + MAC. The sensor ID itself is
+  unchanged.
+  - Stored as column `mac` in the SQLite `sensors` (key now `uid, mac`),
+    `readings` and `aggregates` tables, and as tag `mac` in InfluxDB.
+  - Dashboard: **Device ID** column after Part on Live, one row per device;
+    one History card per device. `/api/latest` and `/api/series` take
+    `?mac=`; `/api/sensors` lists one entry per device.
+  - `simulate --twin <type_id>`: a second simulated device of that type.
+  - `gateway/tests/test_multi_device.py` (SQLite; `influx` argument adds
+    InfluxDB).
+  - Grafana, the other MCP tools and rules are not per device yet.
 
 ### Changed
+- **Databases from before the Device ID change are refused** at startup with
+  "old database format"; there is no migration. Back up and reset them, see
+  `gateway/README.md`, "Reset the data". `migrate-sqlite` still reads an old
+  `gateway.db` (its sensors get an empty Device ID).
 - **Default `store_backend` is `influx`.** A native run without InfluxDB stops
   with "InfluxDB not reachable"; set `"store_backend": "sqlite"` in
   `gateway/config.json` for the previous behaviour, which is unchanged.

@@ -39,6 +39,31 @@ printed at startup:
 [gateway] store: influx (aiot_blp @ http://influxdb:8086), raw kept 7d, rollup 5m kept 52w; inventory in /app/gateway/data/gateway_meta.db
 ```
 
+## Devices that share a sensor ID
+
+A sensor ID is `kit_id:sensor_type_id`, so two nodes of the same type
+programmed with the same kit ID (for example two DS18B20s) both send as `1:1`.
+The gateway tells them apart by the sender's Bluetooth address (MAC), which
+the radio adds to every advertisement; no firmware change is needed.
+
+- The sensor ID stays `1:1`. The MAC is stored beside it: column `mac` in the
+  SQLite `sensors`, `readings` and `aggregates` tables, tag `mac` in InfluxDB
+  (rollups keep it).
+- The dashboard's Live tab has a **Device ID** column with one row per device
+  (`1:1 | 02:00:…:01`, `1:1 | 02:00:…:02`); History has one card per device.
+- `/api/latest/<uid>?mac=<mac>` and `/api/series/<uid>/<field>?mac=<mac>`
+  select one device. Without `mac` they read every device under the ID.
+- On macOS the operating system hides the MAC and gives a per-computer ID
+  instead; it still tells devices apart, but differs from the real address.
+- A database made before this change is refused at startup ("old database
+  format"); see "Reset the data" below.
+- Not yet per device: Grafana (two devices under one ID become one averaged
+  line), the MCP tools other than the dashboard's, and rules (a rule on `1:1`
+  fires on either device).
+
+Try it without hardware: `python -m gateway simulate --twin 1` adds a second
+DS18B20 under kit 1.
+
 ## Quick start (no hardware needed)
 
 Recommended: from the `ai_first_course/` directory, run the one-command setup
@@ -87,7 +112,7 @@ python -m gateway mcp          # stdio transport
 | Command | Purpose |
 |---|---|
 | `run` | live BLE scan into the store, rules evaluated, dashboard served |
-| `simulate [--fault 1:stuck]` | same pipeline on simulated SIMs; fault injection for the validation labs |
+| `simulate [--fault 1:stuck] [--twin 1]` | same pipeline on simulated SIMs; fault injection for the validation labs; `--twin` adds a second device of that type under the same kit ID |
 | `mcp` | MCP server: 10 tools, card resources, experiment prompt templates |
 | `dashboard` | thin local view only |
 | `recipe occupancy` | cloud-loop fusion recipe -> evidence pack (+model answer if ANTHROPIC_API_KEY set) |
@@ -243,6 +268,9 @@ Grafana itself.
   about 10 s).
 - Units, sensor health and delivery ratio are not in InfluxDB; they stay on
   the gateway dashboard (port 8931).
+- Two devices under one sensor ID (see "Devices that share a sensor ID") are
+  averaged into one line here for now; the gateway dashboard shows them
+  apart.
 
 ### Analysis libraries in the image
 
@@ -293,6 +321,31 @@ docker compose logs grafana
 docker compose exec influxdb influxd backup -portable /var/lib/influxdb/backup
 ```
 
+### Reset the data
+
+Back up, then start with empty databases. Needed once when the gateway
+stops with "old database format" (a database from before the Device ID
+change); there is no migration.
+
+```
+docker compose stop gateway mcp            # InfluxDB keeps running for the backup
+B=~/backup/$(date +%F) && mkdir -p $B
+sudo cp gateway/data/gateway_meta.db* $B/
+sudo cp gateway/data/gateway.db* $B/ 2>/dev/null    # SQLite backend, if used
+docker compose exec influxdb influxd backup -portable -db aiot_blp /tmp/influx-bk
+docker compose cp influxdb:/tmp/influx-bk $B/influx
+ls -R $B | head
+
+sudo rm -f gateway/data/gateway_meta.db* gateway/data/gateway.db*
+docker compose exec influxdb influx -execute 'DROP DATABASE aiot_blp'
+docker compose up -d --build
+```
+
+The gateway recreates the InfluxDB database, its retention policies and the
+rollup query at start, and a new `gateway_meta.db`. A backup restores only
+with the code it was made with (`influxd restore -portable`, then copy the
+SQLite files back).
+
 ### Moving existing SQLite data into InfluxDB
 
 Put the old `gateway.db` in `gateway/data/` (it is already there if the
@@ -309,7 +362,9 @@ docker compose up -d
 Readings from the last raw retention go to InfluxDB as raw points; all
 readings and any `downsample` aggregates also become rollups, so older
 history stays queryable. Annotations, sensor counts and experiments are
-copied too. `gateway.db` itself is left untouched.
+copied too. `gateway.db` itself is left untouched. A `gateway.db` from before
+the Device ID change has no MACs; its sensors come across with an empty
+Device ID.
 
 ### If Bluetooth does not work in the container
 

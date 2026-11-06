@@ -14,6 +14,7 @@ def list_sensors(ctx: GatewayContext) -> list[dict]:
         total = s["rx_count"] + s["lost_count"]
         out.append({
             "uid": s["uid"],
+            "mac": s["mac"],     # one entry per device: a uid can have several
             "part": s["part"],
             "kit_id": s["kit_id"],
             "sensor_type_id": s["sensor_type_id"],

@@ -45,8 +45,11 @@ def make_handler(ctx: GatewayContext):
             elif self.path == "/api/sensors":
                 self._json(list_sensors(ctx))
             elif self.path.startswith("/api/latest/"):
-                uid = unquote(self.path.rsplit("/", 1)[-1])
-                self._json(read_latest(ctx, uid))
+                # /api/latest/<uid>?mac=<mac>: one device of that uid
+                parts = urlsplit(self.path)
+                uid = unquote(parts.path.rsplit("/", 1)[-1])
+                mac = parse_qs(parts.query, keep_blank_values=True).get("mac", [None])[0]
+                self._json(read_latest(ctx, uid, mac=mac))
             elif self.path.startswith("/api/series/"):
                 self._series()
             elif self.path.startswith("/api/card/"):
@@ -78,8 +81,8 @@ def make_handler(ctx: GatewayContext):
                                   for m in card.get("measurands", [])}})
 
         def _series(self):
-            # /api/series/<uid>/<field>?since=<s>&agg=<mean|min|max|band|raw>&bucket=<s>
-            # band = mean plus min/max per bucket
+            # /api/series/<uid>/<field>?since=<s>&agg=<mean|min|max|band|raw>&bucket=<s>&mac=<mac>
+            # band = mean plus min/max per bucket; mac selects one device
             # Reads history straight from the store so a freshly opened
             # dashboard backfills its graphs instead of starting blank.
             parts = urlsplit(self.path)
@@ -89,7 +92,7 @@ def make_handler(ctx: GatewayContext):
                 return
             uid = unquote(segs[3])
             field = unquote(segs[4])
-            q = parse_qs(parts.query)
+            q = parse_qs(parts.query, keep_blank_values=True)  # mac= selects no-mac rows
             try:
                 since = float(q.get("since", ["21600"])[0])
                 bucket = int(q.get("bucket", ["60"])[0])
@@ -99,12 +102,13 @@ def make_handler(ctx: GatewayContext):
             since = max(1.0, min(since, 30 * 86400))
             bucket = max(1, min(bucket, 3600))
             agg = q.get("agg", ["mean"])[0]
+            mac = q.get("mac", [None])[0]
             if agg not in ("mean", "min", "max", "band"):
                 agg = None
             now = time.time()
             pts = ctx.store.query_timeseries(
-                uid, field, now - since, now, agg=agg, bucket_s=bucket)
-            self._json({"uid": uid, "field": field,
+                uid, field, now - since, now, agg=agg, bucket_s=bucket, mac=mac)
+            self._json({"uid": uid, "mac": mac, "field": field,
                         "agg": agg, "bucket_s": bucket, "points": pts})
 
     return Handler
