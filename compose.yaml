@@ -67,8 +67,10 @@ services:
       - apparmor:unconfined
 
   mcp:
-    build: .
+    # same image the gateway service builds; building it here as well made a
+    # second copy on every --build and left the first one as a <none> image
     image: aiot-blp-gateway:local
+    pull_policy: never
     command: ["mcp"]
     restart: unless-stopped
     init: true

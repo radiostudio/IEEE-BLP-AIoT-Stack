@@ -316,6 +316,9 @@ docker compose up -d
 # update the code
 git pull && docker compose up -d --build
 
+# remove old gateway images left nameless (<none>) by earlier builds
+docker image prune -f
+
 # approve an agent-authored rule, then reload the rule engine
 docker compose exec gateway python -m gateway approve-rule <name>
 docker compose restart gateway

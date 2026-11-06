@@ -73,6 +73,9 @@
     frame per device".
 
 ### Changed
+- `compose.yaml`: only the `gateway` service builds the image; `mcp` reuses
+  it (`pull_policy: never`). Each `--build` used to build it twice and leave
+  an extra `<none>` image behind.
 - **Databases from before the Device ID change are refused** at startup with
   "old database format"; there is no migration. Back up and reset them, see
   `gateway/README.md`, "Reset the data". `migrate-sqlite` still reads an old
