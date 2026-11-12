@@ -54,6 +54,8 @@ def _check_store(store) -> None:
     for s in list_sensors(ctx):
         assert s["delivery_ratio"] == 1.0, s   # no false losses from shared seq
 
+    # InfluxDB read_latest skips points younger than SETTLE_S
+    time.sleep(getattr(store, "SETTLE_S", 0))
     a = read_latest(ctx, "1:1", mac=MAC_A)["fields"]["temperature_c"]["value"]
     b = read_latest(ctx, "1:1", mac=MAC_B)["fields"]["temperature_c"]["value"]
     assert (a, b) == (20.0, 30.0), (a, b)

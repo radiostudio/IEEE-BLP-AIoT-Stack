@@ -315,11 +315,31 @@ class InfluxStore:
     def list_sensors(self) -> list[dict]:
         return self._meta.list_sensors()
 
+    # read_latest skips points newer than this many seconds.
+    #
+    # Why: InfluxDB 1.x stores every field of a point as its own series and
+    # has no read isolation, so a query that lands while a point is being
+    # written can return it with some fields still missing. A missing
+    # "status" then reads as sensor_ok false. Seen on 2026-11-12: one BME688
+    # point first returned without bvoc_ppm, then complete on a later query.
+    # A point's time is the reconciled frame time, and the flush thread
+    # writes up to FLUSH_INTERVAL_S later, so this must stay well above that.
+    # Cost: "latest" lags real time by this much.
+    #
+    # Alternative, not implemented: keep each device's last decoded frame in
+    # the gateway process's memory (filled in insert_readings) and answer
+    # read_latest from it, falling back to this query after a restart. Always
+    # complete and no lag, but only the process that runs the scanner has it:
+    # the MCP server is a separate process (compose service "mcp") and would
+    # still need this query.
+    SETTLE_S = 2.0
+
     def read_latest(self, sensor_uid: str, mac: str | None = None) -> dict:
         self.flush()  # read-your-writes within this process
+        settled_ns = int((time.time() - self.SETTLE_S) * 1e9)
         q = (f"SELECT * FROM {_ident(RAW_RP)}.{_ident(READINGS)} "
              f"WHERE sensor_uid = {_literal(sensor_uid)}{_mac_where(mac)} "
-             f"ORDER BY time DESC LIMIT 1")
+             f"AND time <= {settled_ns} ORDER BY time DESC LIMIT 1")
         out = {}
         for row in self._rows(self.query(q)):
             ts = row["time"] / 1e9

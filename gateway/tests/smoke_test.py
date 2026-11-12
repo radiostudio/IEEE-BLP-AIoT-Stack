@@ -105,6 +105,8 @@ def main(backend: str = "sqlite") -> int:
               all(0 < s["delivery_ratio"] <= 1 for s in inventory))
 
         # 3. tools over stored data
+        # InfluxDB read_latest skips points younger than SETTLE_S
+        time.sleep(getattr(store, "SETTLE_S", 0))
         latest = read_latest(ctx, "1:1")
         check("read_latest returns temperature",
               "temperature_c" in latest.get("fields", {}))
