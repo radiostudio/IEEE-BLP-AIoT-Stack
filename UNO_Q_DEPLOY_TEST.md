@@ -21,7 +21,8 @@ Three parts:
 1. **Phase 1, Native Python**: the gateway runs from a Python venv and uses
    the InfluxDB 1.13.1 installed on the board.
 2. **Phase 2, Docker**: the same gateway, plus InfluxDB and Grafana, runs as
-   containers built on the board.
+   containers built on the board. "Install Docker" comes first if the
+   machine has no Docker yet.
 3. **Maintaining the Docker stack**: everything needed day to day once
    Phase 2 runs (status, logs, data, new cards, updates, disk space). Start
    with "Docker in five minutes" if you are new to Docker.
@@ -30,20 +31,50 @@ Run every command on the Uno Q (over SSH or its own terminal) from the
 repository folder unless a step says otherwise. `<uno-q-ip>` is the board's
 IP address on your network (`hostname -I` on the board shows it).
 
+**Other Linux machines (e.g. an Ubuntu PC):** the Docker setup works the
+same way. Follow "Before you start", then "Install Docker", then Phase 2;
+skip Phase 1, which needs InfluxDB installed on the machine itself. Steps
+marked *(Uno Q only)* can be skipped. The images exist for both arm64 (Uno
+Q) and amd64 (normal PCs).
+
+**Nothing else is installed by hand.** `docker compose up -d --build` (step
+2.5) does it all:
+
+| Part | How it gets onto the machine |
+|---|---|
+| InfluxDB 1.13.1 | ready-made image `influxdb:1.13.1`, downloaded |
+| Grafana 13.2.5 | ready-made image `grafana/grafana:13.2.5`, downloaded |
+| Python 3.12 and the libraries (bleak, mcp, pandas, polars, ...) | built into `aiot-blp-gateway:local` by `Dockerfile` from `gateway/requirements-docker.txt` |
+| Grafana data source and dashboard | read from `docker/grafana/` in the repository when Grafana starts |
+| InfluxDB database, retention policies, rollup | created by the gateway on its first start |
+
 ---
 
 ## Before you start
 
 | Check | Command | Expected |
 |---|---|---|
-| OS / CPU | `uname -m` | `aarch64` |
-| Python | `python3 --version` | 3.10 or newer |
-| Git | `git --version` | any |
+| OS / CPU | `uname -m` | `aarch64` (Uno Q) or `x86_64` (PC) |
+| Python | `python3 --version` | 3.10 or newer (Phase 1 only) |
+| Git | `git --version` | any (`sudo apt install -y git` if missing) |
+| Bluetooth service | `systemctl is-active bluetooth` | `active` |
 | Bluetooth adapter | `bluetoothctl list` | one controller, e.g. `hci0` |
 | BlueZ experimental mode | `grep -n '^Experimental' /etc/bluetooth/main.conf` | `Experimental = true` |
 | Free disk | `df -h / /home` | a few GB free (see "Disk space") |
 
-If experimental mode is off, turn it on once per board (from
+If `bluetoothctl` is not found or the service is not active (common on a
+fresh Ubuntu server install):
+
+```
+sudo apt update
+sudo apt install -y bluez
+sudo systemctl enable --now bluetooth
+```
+
+On a PC, also check that Bluetooth is not switched off (`rfkill list`; if it
+says `Soft blocked: yes`, run `sudo rfkill unblock bluetooth`).
+
+If experimental mode is off, turn it on once per machine (from
 `gateway/README.md`, "Porting", step 2):
 
 ```
@@ -297,9 +328,109 @@ ID change has no MACs; its sensors come across with an empty Device ID.
 
 ---
 
+## Install Docker (Ubuntu and Debian)
+
+Skip this if `docker --version` and `docker compose version` already work.
+The Uno Q runs Debian, an Ubuntu PC runs Ubuntu; the commands below work on
+both (they read which one from `/etc/os-release`).
+
+**Use Docker Engine from Docker's own repository.** Not:
+
+- **Docker Desktop**: it runs containers inside a virtual machine, so the
+  gateway cannot reach the host's Bluetooth.
+- **The snap** (`snap install docker`): it cannot reach `/run/dbus`, which the
+  gateway needs for Bluetooth, nor folders outside your home folder.
+- **Ubuntu's `docker.io` package**: it works, but is often older and lacks
+  the `docker compose` plugin.
+
+### Remove old or conflicting packages
+
+```
+sudo snap remove docker 2>/dev/null
+for p in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do
+  sudo apt-get remove -y $p
+done
+```
+
+"not installed" messages are fine. Images and volumes from an earlier Docker
+in `/var/lib/docker` are kept.
+
+### Add Docker's repository
+
+```
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+. /etc/os-release
+sudo curl -fsSL https://download.docker.com/linux/$ID/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$ID ${UBUNTU_CODENAME:-$VERSION_CODENAME} stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list
+sudo apt-get update
+```
+
+The last command should list `download.docker.com` without errors. `$ID` is
+`ubuntu` or `debian`; on another distribution (Linux Mint, Raspberry Pi OS,
+...) see Docker's install page for that system.
+
+### Install and start
+
+```
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+```
+
+`enable` makes Docker, and with it the stack, start again after a reboot.
+
+### Use Docker without sudo
+
+```
+sudo usermod -aG docker $USER
+```
+
+Log out and back in (or reboot) for it to apply; `groups` then lists
+`docker`. Membership of the `docker` group is equivalent to root on this
+machine; add only trusted users.
+
+### Check
+
+```
+docker --version
+docker compose version
+docker run --rm hello-world
+```
+
+Expected: a version for each, then `Hello from Docker!`. Remove the test
+image again with `docker image rm hello-world`.
+
+### Before the first build
+
+- *(Uno Q only)* Move Docker's data to `/home` now, while it is empty
+  (section "Disk space", "Move Docker's data to /home"). A PC usually has
+  room on `/`; check with `df -h /`.
+- Optional: cap the logs of every container on the machine, not only this
+  stack's (`compose.yaml` already caps its own). Create
+  `/etc/docker/daemon.json`, or add the two log lines if it already exists:
+
+  ```
+  {
+      "log-driver": "json-file",
+      "log-opts": { "max-size": "10m", "max-file": "2" }
+  }
+  ```
+
+  then `sudo systemctl restart docker`.
+
+Continue with Phase 2. On a machine that skipped Phase 1, start at 2.2.
+
+---
+
 ## Phase 2: Docker
 
 ### 2.1 Stop the Phase 1 setup
+
+Only if you ran Phase 1 on this machine.
+
 
 - Ctrl+C both `run` and `mcp`.
 - Optional: back up the data collected in Phase 1:
@@ -325,17 +456,17 @@ docker compose version
 docker info --format '{{.DockerRootDir}}'
 ```
 
-If Docker commands need `sudo`, add yourself to the `docker` group once, then
-log out and back in:
+If `docker` is not found, see "Install Docker". If Docker commands need
+`sudo`, add yourself to the `docker` group once, then log out and back in:
 
 ```
 sudo usermod -aG docker $USER
 ```
 
-`DockerRootDir` is where Docker keeps images, containers and volumes. The
-default, `/var/lib/docker`, is on the Uno Q's small root partition. Move it to
-`/home` **before** the first build (section "Disk space", "Move Docker's data
-to /home").
+`DockerRootDir` is where Docker keeps images, containers and volumes.
+*(Uno Q only)* The default, `/var/lib/docker`, is on the Uno Q's small root
+partition. Move it to `/home` **before** the first build (section "Disk
+space", "Move Docker's data to /home").
 
 ### 2.3 Create the settings file
 
@@ -855,7 +986,7 @@ Safe clean-up (nothing in use is touched):
 **Never** `docker volume prune` or `docker system prune --volumes` unless you
 want to delete the InfluxDB and Grafana data.
 
-**Move Docker's data to /home** (once per board, about 10 minutes; Docker is
+**Move Docker's data to /home** *(Uno Q only)* (once per board, about 10 minutes; Docker is
 down meanwhile):
 
 ```
