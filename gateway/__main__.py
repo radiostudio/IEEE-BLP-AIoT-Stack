@@ -58,9 +58,12 @@ async def _run_with_status(src, pipe: Pipeline, interval_s: int = 10) -> None:
 def cmd_run(args) -> None:
     from .dashboard.server import serve
     from .scanner.ble_scan import BleSource
+    from .actuation.link import ActuatorLink
     cfg = load_config()
     ctx = _ctx(announce=True)
-    engine = RuleEngine(ctx.store)
+    link = ActuatorLink()
+    link.start()   # finds the actuator on a USB serial port, reconnects forever
+    engine = RuleEngine(ctx.store, actuator=link)
     pipe = Pipeline(ctx.store, ctx.registry, engine)
     if not args.no_dashboard:
         serve(ctx, port=args.port or cfg.get("dashboard_port", 8080),

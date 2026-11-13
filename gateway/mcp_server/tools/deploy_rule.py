@@ -15,7 +15,7 @@ import secrets
 
 from ..context import GatewayContext
 
-_ALLOWED_ACTIONS = {"log", "annotate", "webhook", "gpio"}
+_ALLOWED_ACTIONS = {"log", "annotate", "webhook", "gpio", "relay"}
 _ALLOWED_OPS = {"<", "<=", ">", ">=", "==", "!="}
 # a Bluetooth MAC (AA:BB:CC:DD:EE:FF), or the UUID macOS reports instead
 _DEVICE_ID = re.compile(r"^(?:[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}"
@@ -52,6 +52,12 @@ def validate_rule_spec(spec: dict) -> list[str]:
     action = spec.get("action", {})
     if action.get("type") not in _ALLOWED_ACTIONS:
         errors.append(f"action.type must be one of {sorted(_ALLOWED_ACTIONS)}")
+    if action.get("type") == "relay":
+        kit = action.get("kit_id")
+        if not (isinstance(kit, int) and not isinstance(kit, bool) and 0 <= kit <= 0xFFFF):
+            errors.append("relay action: kit_id must be a whole number 0..65535")
+        if action.get("state") not in ("on", "off"):
+            errors.append("relay action: state must be \"on\" or \"off\"")
     return errors
 
 

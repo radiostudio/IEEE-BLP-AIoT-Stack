@@ -2,4 +2,5 @@
 # Optional extras, install what the deployment needs:
 bleak>=0.21        # live BLE scanning (Windows/WinRT, Linux/BlueZ, macOS)
 mcp==1.30.0        # MCP server for Claude and other clients
+pyserial==3.5      # UART link to the actuation gateway (relay rules)
 # anthropic>=0.40  # only for online mode of the agents orchestrator

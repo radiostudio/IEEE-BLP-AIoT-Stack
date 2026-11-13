@@ -71,6 +71,13 @@ services:
       - ./gateway/data:/app/gateway/data
       # BlueZ on the host, reached over the system D-Bus
       - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+      # the host's live /dev, so a USB-serial adapter plugged in after the
+      # container started is still seen by the actuator link
+      - /dev:/dev
+    # ...and permission to open only USB-serial devices from it
+    device_cgroup_rules:
+      - "c 188:* rmw"   # /dev/ttyUSB*  (USB-serial adapters)
+      - "c 166:* rmw"   # /dev/ttyACM*  (USB CDC boards)
     # Docker's default AppArmor profile blocks D-Bus messages to BlueZ on
     # Debian-based hosts; this lifts AppArmor for this container only.
     security_opt:

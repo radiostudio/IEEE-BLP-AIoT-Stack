@@ -5,6 +5,14 @@ tool), but a rule only runs after a human approves it: deploy_rule writes
 `<name>.json.pending`; `python -m gateway approve-rule <name>` renames it to
 `<name>.json`. The engine loads only approved files.
 
+Live reload, no restart needed: at most every RELOAD_CHECK_S, when a frame
+arrives, the engine compares the name, change time and size of every
+rules.d/*.json with the last check (.pending drafts never match *.json). If
+anything was added, edited or deleted, it reloads all rules. A rule whose
+content is unchanged keeps its timers and cooldown; an edited or deleted one
+loses them. A file that fails to parse or to pass validate_rule_spec does
+not run, and its exact error is printed.
+
 Rule spec:
 {
   "name": "corridor_lighting",
@@ -27,6 +35,8 @@ Condition semantics:
 - for_s: condition must have held continuously for this long
 - within_s: condition must have been true at least once in this window
 Action types: log (stdout + annotation), annotate, webhook (POST JSON to url),
+relay ({"type": "relay", "kit_id": 3, "state": "on"|"off"}: sets the wanted
+state on the actuator link, which keeps sending it over the UART),
 gpio (no-op stub here; the Pi/Uno Q port maps it to a real pin driver).
 """
 
@@ -38,6 +48,7 @@ import urllib.request
 from pathlib import Path
 
 from ..core import RULES_DIR, STATUS_SENSOR_OK
+from ..mcp_server.tools.deploy_rule import validate_rule_spec
 
 _OPS = {
     "<": lambda a, b: a < b, "<=": lambda a, b: a <= b,
@@ -53,8 +64,12 @@ class _CondState:
 
 
 class RuleEngine:
-    def __init__(self, store, rules_dir: str | Path = RULES_DIR):
+    # how often (seconds) evaluate() looks for added, edited or deleted rule files
+    RELOAD_CHECK_S = 2.0
+
+    def __init__(self, store, rules_dir: str | Path = RULES_DIR, actuator=None):
         self.store = store
+        self.actuator = actuator   # gateway.actuation.link.ActuatorLink, for relay actions
         self.rules_dir = Path(rules_dir)
         self.rules: list[dict] = []
         self._state: dict[tuple[str, int, str], _CondState] = {}
@@ -63,24 +78,65 @@ class RuleEngine:
         # (uid, field) -> macs seen, in arrival order
         self._macs: dict[tuple[str, str], dict[str, None]] = {}
         self.fired_log: list[dict] = []
+        self._fingerprint: dict[str, tuple[int, int]] = {}
+        self._last_check = time.time()
         self.reload()
 
+    def _rules_fingerprint(self) -> dict[str, tuple[int, int]]:
+        """file name -> (change time, size) for every rules.d/*.json."""
+        fp = {}
+        for path in self.rules_dir.glob("*.json"):  # never matches .json.pending
+            try:
+                st = path.stat()
+            except OSError:
+                continue  # deleted while listing
+            fp[path.name] = (st.st_mtime_ns, st.st_size)
+        return fp
+
     def reload(self) -> None:
+        self._fingerprint = self._rules_fingerprint()
+        old = {r["name"]: r for r in self.rules}
         self.rules = []
-        if not self.rules_dir.exists():
-            return
         for path in sorted(self.rules_dir.glob("*.json")):
             try:
                 with open(path, encoding="utf-8") as fh:
-                    self.rules.append(json.load(fh))
-            except (json.JSONDecodeError, OSError) as exc:
-                print(f"[rules] skipping {path.name}: {exc}")
+                    rule = json.load(fh)
+                errors = validate_rule_spec(rule)
+            except json.JSONDecodeError as exc:
+                errors = [f"invalid JSON at line {exc.lineno}, "
+                          f"column {exc.colno}: {exc.msg}"]
+            except (AttributeError, TypeError):
+                errors = ["not a rule: the file or its 'when' is the wrong shape"]
+            except OSError as exc:
+                errors = [f"cannot read the file: {exc}"]
+            if errors:
+                print(f"[rules] {path.name}: {'; '.join(errors)} "
+                      f"(not running until the file is fixed)")
+                continue
+            self.rules.append(rule)
+        # unchanged rules keep their timers; edited or removed ones start fresh
+        new = {r["name"]: r for r in self.rules}
+        for name, rule in old.items():
+            if new.get(name) != rule:
+                self._forget(name)
+        print(f"[rules] active: {', '.join(new) or '(none)'}")
+
+    def _forget(self, name: str) -> None:
+        """Drop a rule's timers and cooldown."""
+        self._last_fired.pop(name, None)
+        for key in [k for k in self._state if k[0] == name]:
+            del self._state[key]
 
     # The engine is fed by the pipeline; it keeps its own latest-value cache so
     # evaluation never blocks on database reads.
     def evaluate(self, sensor_uid: str, values: dict[str, float], status: int,
                  mac: str = "") -> None:
         now = time.time()
+        if now - self._last_check >= self.RELOAD_CHECK_S:
+            self._last_check = now
+            if self._rules_fingerprint() != self._fingerprint:
+                print("[rules] rule files changed, reloading")
+                self.reload()
         for field, value in values.items():
             self._latest[(sensor_uid, field, mac)] = (value, now, status)
             self._macs.setdefault((sensor_uid, field), {})[mac] = None
@@ -154,6 +210,14 @@ class RuleEngine:
                 urllib.request.urlopen(req, timeout=5)
             except Exception as exc:
                 print(f"[rule:{rule.get('name')}] webhook failed: {exc}")
+        elif kind == "relay":
+            # only sets the wanted state; the actuator link keeps sending it
+            if self.actuator is None:
+                print(f"[rule:{rule.get('name')}] relay action skipped: "
+                      f"no actuator link in this gateway")
+            else:
+                self.actuator.set_relay(int(action["kit_id"]),
+                                        action["state"] == "on")
         elif kind == "gpio":
             # Port point: on Raspberry Pi / Uno Q, replace this stub with a
             # gpiozero/libgpiod driver. The rule spec does not change.
