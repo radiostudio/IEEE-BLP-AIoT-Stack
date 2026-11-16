@@ -13,6 +13,13 @@ content is unchanged keeps its timers and cooldown; an edited or deleted one
 loses them. A file that fails to parse or to pass validate_rule_spec does
 not run, and its exact error is printed.
 
+Stale data: a sensor value older than STALE_S (arrival time) counts as no
+data, so a condition on it is false. Every STALE_CHECK_S, also when no frame
+arrives at all, the engine switches off once every relay kit of a rule that
+uses a sensor gone stale, and logs it; it logs again when data returns.
+Without this, a sensor that stops sending (battery, range, crash) would keep
+its last value forever and could hold a relay on.
+
 Rule spec:
 {
   "name": "corridor_lighting",
@@ -43,6 +50,7 @@ gpio (no-op stub here; the Pi/Uno Q port maps it to a real pin driver).
 from __future__ import annotations
 
 import json
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -66,6 +74,10 @@ class _CondState:
 class RuleEngine:
     # how often (seconds) evaluate() looks for added, edited or deleted rule files
     RELOAD_CHECK_S = 2.0
+    # a sensor value older than this (since it arrived) counts as no data
+    STALE_S = 15.0
+    # how often relay rules are checked for sensors gone stale
+    STALE_CHECK_S = 1.0
 
     def __init__(self, store, rules_dir: str | Path = RULES_DIR, actuator=None):
         self.store = store
@@ -80,7 +92,13 @@ class RuleEngine:
         self.fired_log: list[dict] = []
         self._fingerprint: dict[str, tuple[int, int]] = {}
         self._last_check = time.time()
+        # evaluate() runs on the scanner's thread, the stale check on its own
+        self._lock = threading.RLock()
+        self._stale: set[tuple[str, str, str]] = set()   # (uid, field, mac) now stale
         self.reload()
+        if actuator is not None:
+            threading.Thread(target=self._watch_stale, daemon=True,
+                             name="rules-stale").start()
 
     def _rules_fingerprint(self) -> dict[str, tuple[int, int]]:
         """file name -> (change time, size) for every rules.d/*.json."""
@@ -131,17 +149,54 @@ class RuleEngine:
     # evaluation never blocks on database reads.
     def evaluate(self, sensor_uid: str, values: dict[str, float], status: int,
                  mac: str = "") -> None:
-        now = time.time()
-        if now - self._last_check >= self.RELOAD_CHECK_S:
-            self._last_check = now
-            if self._rules_fingerprint() != self._fingerprint:
-                print("[rules] rule files changed, reloading")
-                self.reload()
-        for field, value in values.items():
-            self._latest[(sensor_uid, field, mac)] = (value, now, status)
-            self._macs.setdefault((sensor_uid, field), {})[mac] = None
+        with self._lock:
+            now = time.time()
+            if now - self._last_check >= self.RELOAD_CHECK_S:
+                self._last_check = now
+                if self._rules_fingerprint() != self._fingerprint:
+                    print("[rules] rule files changed, reloading")
+                    self.reload()
+            for field, value in values.items():
+                self._latest[(sensor_uid, field, mac)] = (value, now, status)
+                self._macs.setdefault((sensor_uid, field), {})[mac] = None
+            for rule in self.rules:
+                self._eval_rule(rule, now)
+
+    def _watch_stale(self) -> None:
+        # its own timer: when a sensor stops, no frame arrives to run evaluate()
+        while True:
+            time.sleep(self.STALE_CHECK_S)
+            with self._lock:
+                self._check_stale(time.time())
+
+    def _check_stale(self, now: float) -> None:
+        """Switch off, once, the relay kits of rules whose sensor went stale."""
+        kits: dict[tuple[str, str, str], set[int]] = {}   # sensor key -> relay kits
         for rule in self.rules:
-            self._eval_rule(rule, now)
+            action = rule.get("action", {})
+            if action.get("type") != "relay":
+                continue
+            for cond in rule["when"]["all"]:
+                key = (cond["sensor"], cond["field"], (cond.get("mac") or "").upper())
+                kits.setdefault(key, set()).add(int(action["kit_id"]))
+        stale = set()
+        for key in kits:
+            uid, field, mac = key
+            macs = [mac] if mac else list(self._macs.get((uid, field), ()))
+            ages = [now - self._latest[(uid, field, m)][1]
+                    for m in macs if (uid, field, m) in self._latest]
+            if ages and min(ages) > self.STALE_S:   # never heard: nothing to undo
+                stale.add(key)
+        for uid, field, mac in sorted(stale - self._stale):
+            ks = sorted(kits[(uid, field, mac)])
+            print(f"[rules] no data from {uid}{' ' + mac if mac else ''} ({field}) "
+                  f"for {self.STALE_S:.0f} s: kit{'s' if len(ks) > 1 else ''} "
+                  f"{', '.join(map(str, ks))} -> OFF")
+            for kit in ks:
+                self.actuator.set_relay(kit, False)
+        for uid, field, mac in sorted((self._stale - stale) & kits.keys()):
+            print(f"[rules] data from {uid}{' ' + mac if mac else ''} ({field}) again")
+        self._stale = stale
 
     def _eval_rule(self, rule: dict, now: float) -> None:
         name = rule.get("name", "unnamed")
@@ -174,6 +229,11 @@ class RuleEngine:
         if latest is None:
             return False
         value, ts, status = latest
+        if now - ts > self.STALE_S:
+            # no data lately: an old value must not switch a relay back on
+            # after the stale check switched it off
+            st.true_since = None
+            return False
         if on_fault == "skip" and not (status & STATUS_SENSOR_OK):
             # bad data must never look like a decision input
             st.true_since = None
