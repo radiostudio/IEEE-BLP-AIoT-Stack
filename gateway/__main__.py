@@ -44,9 +44,11 @@ async def _run_with_status(src, pipe: Pipeline, interval_s: int = 10) -> None:
         last = 0
         while True:
             await asyncio.sleep(interval_s)
+            relay = (f", {pipe.frames_actuator} relay command frames ignored"
+                     if pipe.frames_actuator else "")
             print(f"[gateway] {pipe.frames_in} frames received "
                   f"(+{pipe.frames_in - last} in the last {interval_s}s), "
-                  f"{pipe.frames_stored} stored; latest values on the dashboard")
+                  f"{pipe.frames_stored} stored{relay}; latest values on the dashboard")
             last = pipe.frames_in
     task = asyncio.get_running_loop().create_task(status())
     try:

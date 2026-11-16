@@ -25,10 +25,23 @@ class Pipeline:
         self.rule_engine = rule_engine
         self.frames_in = 0
         self.frames_stored = 0
+        self.frames_actuator = 0   # relay command frames heard and ignored
         self._announced: set[str] = set()
 
     def on_frame(self, frame: RawFrame) -> None:
         self.frames_in += 1
+        # Actuator command frames (cards with "role": "actuator", e.g. type 18
+        # relay) are commands the actuation gateway (UNO Q) broadcasts, which
+        # this gateway's scanner also hears. They carry no readings. Linux
+        # sends non-connectable broadcasts from a new random (non-resolvable
+        # private) address each time the UNO Q registers an advertisement, so
+        # treating them as devices would add a new inventory entry, an
+        # "online" line and dedupe/timing state for every broadcast, growing
+        # forever. Count them and stop here, before any per-device state.
+        card = self.registry.resolve(frame)
+        if card is not None and card.doc.get("role") == "actuator":
+            self.frames_actuator += 1
+            return
         if not self.deduper.accept(frame):
             return
         card, values = self.registry.decode(frame)
