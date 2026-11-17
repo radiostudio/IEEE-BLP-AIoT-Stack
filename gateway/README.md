@@ -30,7 +30,7 @@ than the new limit. `downsample` is not needed with InfluxDB.
 
 Environment variables override `config.json` in memory (the file is never
 rewritten): `GATEWAY_STORE_BACKEND`, `GATEWAY_KIT_ID`, `GATEWAY_BLE_ADAPTER`,
-`GATEWAY_RULES_DIR`, `INFLUX_URL`, `INFLUX_DB`, `INFLUX_USER`,
+`GATEWAY_RULES_DIR`, `GATEWAY_DB_PATH` (the SQLite file), `INFLUX_URL`, `INFLUX_DB`, `INFLUX_USER`,
 `INFLUX_PASSWORD`, `INFLUX_RAW_RETENTION`, `INFLUX_ROLLUP_PERIOD`,
 `INFLUX_ROLLUP_RETENTION`, `INFLUX_META_DB_PATH`. The effective store is
 printed at startup:
@@ -199,6 +199,16 @@ The code is identical on all targets; porting is environment work:
 Nothing in the pipeline imports Windows-only or Linux-only modules; the smoke
 test is the porting acceptance test: if `python -m gateway smoke` passes on
 the target, the gateway works there.
+
+## Windows program for students (.exe)
+
+`packaging/windows/` builds `aiot-gateway.exe`: the gateway, dashboard and
+MCP server in one program on SQLite, as a zip students unzip and run without
+Python. Double-click for real sensors (Bluetooth), `Simulator.bat` for the
+simulator; data in a `data` folder next to the .exe. Build it on Windows with
+`packaging\windows\build_windows.bat`; see `packaging/windows/BUILD.md`.
+Docker on Windows is not an option for real sensors: its Linux virtual
+machine cannot use the laptop's Bluetooth.
 
 ## Docker (Uno Q / Linux)
 

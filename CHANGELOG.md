@@ -66,6 +66,21 @@
   (default `900`), also with the tab open. `UNO_Q_DEPLOY_TEST.md`:
   "Classroom use" (memory per notebook, one folder per student, watching
   with `docker stats`, backup after class).
+- **Windows program for students:** `packaging/windows/` builds
+  `aiot-gateway.exe` with PyInstaller (folder build, zipped): gateway,
+  dashboard and MCP server in one program on SQLite, no Python needed.
+  Double-click for real sensors, `Simulator.bat` for the simulator; data in
+  `data\gateway.db` and `data\simulated.db` next to the .exe; other gateway
+  commands pass through (`aiot-gateway.exe tool read_latest 1:1`). Built on
+  Windows with `build_windows.bat`; `README.txt` for students, `BUILD.md`
+  with a checklist. `.gitattributes` keeps Windows line endings for those
+  files.
+- `GATEWAY_DB_PATH`: environment override for the SQLite file (`db_path`).
+- **Actuator link on Windows:** the gateway now finds the relay actuator on
+  Windows, on the COM ports of USB devices (pyserial's port list; Bluetooth
+  virtual COM ports skipped). Linux still searches only `/dev/ttyUSB*` and
+  `/dev/ttyACM*`. While searching, "actuator not found" is logged when the
+  result changes instead of every 3 s. `gateway/actuation/link.py`.
 - **Device ID: devices that share a sensor ID are kept apart.** Two nodes of
   one type with the same kit ID (both `1:1`) used to be merged into one
   sensor, and one dropped the other's frames as duplicates. The gateway now

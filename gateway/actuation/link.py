@@ -11,7 +11,14 @@ Messages are one JSON object per line, both ways, matched by "id":
 
 Finding the port: every USB serial port is tried with "hello"; the one that
 answers role "actuator" is used. Clone adapters on this kit share one serial
-number, so a fixed /dev/serial/by-id path cannot tell them apart.
+number, so a fixed /dev/serial/by-id path cannot tell them apart. On Linux
+the ports are /dev/ttyUSB* and /dev/ttyACM* (not every serial port: on the
+UNO Q that would include the board's own link to its microcontroller). On
+Windows they are the COM ports of USB devices, from pyserial's port list;
+Bluetooth's virtual COM ports have no USB ID and are skipped.
+
+While searching, the result is logged when it changes (a port appears,
+disappears or answers differently), not at every attempt.
 
 Keep-alive: rules only change the wanted state per kit. Every SEND_EVERY_S
 the worker re-sends ON for every kit that should be on (OFF a few times after
@@ -25,11 +32,12 @@ from __future__ import annotations
 
 import glob
 import json
+import sys
 import threading
 import time
 
 BAUD = 115200             # 8N1; the actuator script must use the same
-PORT_PATTERNS = ("/dev/ttyUSB*", "/dev/ttyACM*")
+PORT_PATTERNS = ("/dev/ttyUSB*", "/dev/ttyACM*")   # Linux; Windows: USB COM ports
 SCAN_EVERY_S = 3.0        # look for the actuator again after this long
 SEND_EVERY_S = 5.0        # keep-alive round
 REPLY_TIMEOUT_S = 2.0     # wait for each reply
@@ -41,6 +49,22 @@ STATUS_EVERY_S = 60.0     # status line while searching or connected
 
 def log(text: str) -> None:
     print(f"[actuator] {text}")
+
+
+def usb_serial_ports() -> list[str]:
+    """The serial ports an actuator may be on, e.g. COM3 or /dev/ttyUSB0."""
+    if sys.platform == "win32":
+        from serial.tools import list_ports
+        # vid (USB vendor ID) is None for ports that are not USB devices,
+        # e.g. the virtual COM ports of paired Bluetooth devices
+        return sorted(p.device for p in list_ports.comports() if p.vid is not None)
+    return sorted(p for pattern in PORT_PATTERNS for p in glob.glob(pattern))
+
+
+def where_searched() -> str:
+    if sys.platform == "win32":
+        return "the USB COM ports"
+    return ", ".join(PORT_PATTERNS)
 
 
 class ActuatorLink:
@@ -56,9 +80,10 @@ class ActuatorLink:
         self._misses = 0
         self._last_status = 0.0
         self._sent = self._missed = 0         # since the last status line
+        self._last_search: str | None = None  # last "not found" result logged
 
     def start(self) -> None:
-        log(f"searching for the actuator on {', '.join(PORT_PATTERNS)} at {BAUD} baud")
+        log(f"searching for the actuator on {where_searched()} at {BAUD} baud")
         threading.Thread(target=self._run, daemon=True, name="actuator-link").start()
 
     def set_relay(self, kit_id: int, on: bool) -> None:
@@ -107,7 +132,7 @@ class ActuatorLink:
 
     def _find(self) -> bool:
         """Try every USB serial port; log what was found on each attempt."""
-        ports = sorted(p for pattern in PORT_PATTERNS for p in glob.glob(pattern))
+        ports = usb_serial_ports()
         results = []
         for port in ports:
             result = self._probe(port)
@@ -115,12 +140,17 @@ class ActuatorLink:
                 self._port, self._misses = port, 0
                 self._sent = self._missed = 0
                 self._last_status = time.monotonic()
+                self._last_search = None
                 log(f"connected on {port}")
                 return True
             results.append(f"{port} {result}")
         found = "; ".join(results) or "no USB serial port is connected"
-        log(f"searching: actuator not found ({found}). "
-            f"Checking again in {SCAN_EVERY_S:.0f} s")
+        if found != self._last_search:
+            # only when the result changes; the search goes on every few s
+            self._last_search = found
+            log(f"searching: actuator not found ({found}). "
+                f"Checking again every {SCAN_EVERY_S:.0f} s; this line "
+                f"repeats only when that changes")
         return False
 
     def _probe(self, port: str) -> str:
@@ -184,6 +214,7 @@ class ActuatorLink:
 
     def _lost(self, why: str) -> None:
         log(f"connection lost: {why}. Searching for the actuator again")
+        self._last_search = None
         try:
             self._ser.close()
         except OSError:

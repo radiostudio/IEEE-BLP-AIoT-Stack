@@ -1,0 +1,4 @@
+# Files handed to students on Windows (packaging/windows/BUILD.md): Windows
+# line endings, however the repository was checked out
+packaging/windows/*.bat text eol=crlf
+packaging/windows/*.txt text eol=crlf

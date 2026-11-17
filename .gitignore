@@ -4,3 +4,5 @@ __pycache__/
 gateway/data/
 .env
 .ipynb_checkpoints/
+build/
+.venv-build/

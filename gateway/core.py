@@ -136,6 +136,7 @@ _ENV_TOP = {
     "GATEWAY_STORE_BACKEND": ("store_backend", str),
     "GATEWAY_KIT_ID": ("kit_id", int),
     "GATEWAY_BLE_ADAPTER": ("ble_adapter", str),
+    "GATEWAY_DB_PATH": ("db_path", str),
 }
 _ENV_INFLUX = {
     "INFLUX_URL": "url",
