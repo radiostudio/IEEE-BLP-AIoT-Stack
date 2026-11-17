@@ -5,7 +5,8 @@
 #   docker compose logs -f gateway
 #
 # Dashboard on 8931, MCP on 8000, Grafana on 3000 (viewers need no login;
-# admin login from GRAFANA_ADMIN_PASSWORD in .env).
+# admin login from GRAFANA_ADMIN_PASSWORD in .env), JupyterLab on 8888
+# (token: JUPYTER_TOKEN in .env), Streamlit on 8501.
 #
 # Linux only: the gateway reaches the host's Bluetooth through BlueZ over the
 # host D-Bus socket. Docker Desktop on Windows/macOS cannot do that.
@@ -128,6 +129,57 @@ services:
       # data source and the locked "AIoT sensors" dashboard, from the repo
       - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./docker/grafana/dashboards:/etc/grafana/dashboards:ro
+
+  # Analysis: JupyterLab and a Streamlit app, from the gateway image (which
+  # has pandas, scikit-learn, sktime, ...). Both work in ./analysis, so
+  # notebooks and apps survive restarts and can be edited on the host.
+  # Reachable from the LAN: Jupyter asks for JUPYTER_TOKEN, Streamlit has no
+  # login.
+  jupyter:
+    image: aiot-blp-gateway:local
+    pull_policy: never
+    entrypoint: ["jupyter", "lab"]
+    command: ["--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root",
+              "--ServerApp.root_dir=/app/analysis"]
+    restart: unless-stopped
+    logging: *logging
+    init: true
+    working_dir: /app/analysis
+    environment:
+      <<: *gateway-env
+      MCP_URL: http://mcp:8000/mcp
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN:-radiostudio}
+      # the image sets Agg for scripts; charts in notebooks need the inline one
+      MPLBACKEND: module://matplotlib_inline.backend_inline
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    ports:
+      - "${JUPYTER_PORT:-8888}:8888"
+    volumes:
+      - ./analysis:/app/analysis
+
+  streamlit:
+    image: aiot-blp-gateway:local
+    pull_policy: never
+    entrypoint: ["streamlit", "run", "/app/analysis/streamlit_app.py"]
+    command: ["--server.address=0.0.0.0", "--server.port=8501",
+              "--server.headless=true", "--server.runOnSave=true",
+              "--browser.gatherUsageStats=false"]
+    restart: unless-stopped
+    logging: *logging
+    init: true
+    working_dir: /app/analysis
+    environment:
+      <<: *gateway-env
+      MCP_URL: http://mcp:8000/mcp
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    ports:
+      - "${STREAMLIT_PORT:-8501}:8501"
+    volumes:
+      - ./analysis:/app/analysis
 
 volumes:
   influxdb-data:

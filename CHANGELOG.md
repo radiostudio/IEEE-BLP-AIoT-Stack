@@ -43,6 +43,16 @@
 - **Analysis libraries in the Docker image:** pandas, polars, pyarrow, cbor2,
   matplotlib (`MPLBACKEND=Agg`), plotly, `influxdb` and `influxdb-client`,
   listed in `gateway/requirements-docker.txt`. The native setup is unchanged.
+- **JupyterLab and Streamlit in the Docker stack**, reachable from the LAN:
+  services `jupyter` (port 8888, login with `JUPYTER_TOKEN` from `.env`) and
+  `streamlit` (port 8501, no login), both from the gateway image and working
+  in the new `analysis/` folder. scikit-learn 1.9.1, sktime 1.3.0,
+  JupyterLab 4.6.6 and Streamlit 1.67.0 added to
+  `gateway/requirements-docker.txt` (about 400 MB more image). `analysis/`
+  ships `aiot_data.py` (InfluxDB to pandas), `example.ipynb` (pandas,
+  scikit-learn anomaly flags, sktime forecast, MCP client) and
+  `streamlit_app.py` (live chart per sensor, device and field).
+  `.env.example`: `JUPYTER_PORT`, `STREAMLIT_PORT`, `JUPYTER_TOKEN`.
 - **Device ID: devices that share a sensor ID are kept apart.** Two nodes of
   one type with the same kit ID (both `1:1`) used to be merged into one
   sensor, and one dropped the other's frames as duplicates. The gateway now

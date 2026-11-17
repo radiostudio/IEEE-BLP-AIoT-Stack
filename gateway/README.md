@@ -203,7 +203,8 @@ the target, the gateway works there.
 ## Docker (Uno Q / Linux)
 
 `compose.yaml` at the repository root runs the gateway as three containers,
-built on the board itself (the Uno Q is `linux/arm64`), plus Grafana:
+built on the board itself (the Uno Q is `linux/arm64`), plus Grafana,
+JupyterLab and Streamlit:
 
 | Service | What it runs | Port |
 |---|---|---|
@@ -211,6 +212,8 @@ built on the board itself (the Uno Q is `linux/arm64`), plus Grafana:
 | `gateway` | `run`: BLE scan, rules, dashboard | `8931` |
 | `mcp` | `mcp`: MCP server (streamable HTTP, path `/mcp`) | `8000` |
 | `grafana` | `grafana/grafana:13.2.5`, reads InfluxDB; see "Grafana" below | `3000` |
+| `jupyter` | JupyterLab from the gateway image, works in `analysis/`; see "Jupyter and Streamlit" below | `8888` |
+| `streamlit` | `analysis/streamlit_app.py` from the gateway image | `8501` |
 
 **Linux only.** The `gateway` container uses the host's BlueZ through the
 mounted D-Bus socket. Docker Desktop on Windows and macOS runs containers in a
@@ -235,6 +238,8 @@ VM with no access to the laptop's Bluetooth.
    then `BLE scan mode: passive` and sensors coming online.
 5. Dashboard: `http://<uno-q-address>:8931/`. MCP clients:
    `http://<uno-q-address>:8000/mcp`. Grafana: `http://<uno-q-address>:3000/`.
+   JupyterLab: `http://<uno-q-address>:8888/` (token `JUPYTER_TOKEN` from
+   `.env`). Streamlit: `http://<uno-q-address>:8501/`.
 6. Acceptance test against the real InfluxDB (uses a throwaway database):
    `docker compose run --rm gateway smoke --backend influx`
 
@@ -247,6 +252,7 @@ VM with no access to the laptop's Bluetooth.
 | Sensor inventory, experiments | `gateway/data/gateway_meta.db` (repository folder) |
 | SQLite backend database (if `GATEWAY_STORE_BACKEND=sqlite`) | `gateway/data/gateway.db`, the same file a native run uses |
 | Approved rules, capability token | `gateway/data/rules.d/`, `gateway/data/.capability_token` (shipped rules are copied in on first start) |
+| Notebooks, Streamlit app, `aiot_data.py` | `analysis/` (repository folder) |
 
 Container logs (`docker compose logs`) are capped at 3 files of 10 MB per
 service, so older lines drop off. Files in `gateway/data/` are created by the
@@ -288,10 +294,11 @@ Grafana itself.
 ### Analysis libraries in the image
 
 The image also has pandas, polars, pyarrow, cbor2, matplotlib, plotly, `influxdb`
-(InfluxQL client) and `influxdb-client`
-(`gateway/requirements-docker.txt`). The gateway does not use them; they are
-for your own scripts. Put a script in `gateway/data/` (mounted into the
-container) and run it:
+(InfluxQL client), `influxdb-client`, scikit-learn, sktime, JupyterLab and
+Streamlit (`gateway/requirements-docker.txt`). The gateway does not use them;
+they are for your own scripts, notebooks and apps. The `mcp` package, which
+the image has for the MCP server, is also an MCP client. Put a script in
+`gateway/data/` (mounted into the container) and run it:
 
 ```
 docker compose exec gateway python /app/gateway/data/my_script.py
@@ -307,6 +314,44 @@ docker compose exec gateway python /app/gateway/data/my_script.py
   writes and InfluxQL work; Flux queries do not (Flux is off in InfluxDB).
 - pyarrow lets polars and pandas convert to each other
   (`polars.from_pandas()`, `.to_pandas()`) and read and write Parquet files.
+
+### Jupyter and Streamlit
+
+Two more containers from the same image, both reachable from the LAN and
+both working in the repository's `analysis/` folder, so notebooks and apps
+survive restarts and can be edited on the host:
+
+| | Address | Login |
+|---|---|---|
+| JupyterLab | `http://<address>:8888/` (`JUPYTER_PORT`) | token `JUPYTER_TOKEN` from `.env`, default `radiostudio`: change it on a shared network, anyone with it can run commands in the container |
+| Streamlit | `http://<address>:8501/` (`STREAMLIT_PORT`) | none: anyone on the LAN can view it |
+
+What `analysis/` holds:
+
+- `aiot_data.py`: `sensors()` (one row per device with data, and its last
+  values) and `readings(uid, field, mac=None, within="1h")` (a pandas
+  DataFrame). Used by both of the others.
+- `example.ipynb`: load a field into pandas, flag unusual readings with
+  scikit-learn, forecast with sktime, call the MCP server as an MCP client.
+- `streamlit_app.py`: pick a sensor, device and field; live chart, latest
+  value and statistics, refreshed every 10 s.
+
+Inside these containers InfluxDB is `INFLUX_URL` (`http://influxdb:8086`) and
+the MCP server is `MCP_URL` (`http://mcp:8000/mcp`). Charts in notebooks show
+inline (the service sets the matplotlib backend for it).
+
+New notebooks: create them in JupyterLab (they are saved in `analysis/`).
+Your own Streamlit app: edit `analysis/streamlit_app.py`; the page reloads on
+save. To serve a different file, change the path in the `streamlit` service's
+`entrypoint` in `compose.yaml`, then `docker compose up -d`. A library the
+image lacks: add it to `gateway/requirements-docker.txt`, then
+`docker compose up -d --build`. `pip install` inside a container is lost when
+it is recreated.
+
+Files saved from JupyterLab belong to root on the host (the containers run
+as root): `sudo chown -R $USER: analysis` to edit them outside it. Docker
+opens published ports past `ufw`, so 8888 and 8501 are reachable on the LAN
+even with the firewall on.
 
 ### Day-to-day
 

@@ -44,7 +44,7 @@ Q) and amd64 (normal PCs).
 |---|---|
 | InfluxDB 1.13.1 | ready-made image `influxdb:1.13.1`, downloaded |
 | Grafana 13.2.5 | ready-made image `grafana/grafana:13.2.5`, downloaded |
-| Python 3.12 and the libraries (bleak, mcp, pandas, polars, ...) | built into `aiot-blp-gateway:local` by `Dockerfile` from `gateway/requirements-docker.txt` |
+| Python 3.12 and the libraries (bleak, mcp, pandas, polars, scikit-learn, sktime, JupyterLab, Streamlit, ...) | built into `aiot-blp-gateway:local` by `Dockerfile` from `gateway/requirements-docker.txt` |
 | Grafana data source and dashboard | read from `docker/grafana/` in the repository when Grafana starts |
 | InfluxDB database, retention policies, rollup | created by the gateway on its first start |
 
@@ -445,8 +445,8 @@ Only if you ran Phase 1 on this machine.
   sudo systemctl disable --now influxdb
   ```
 
-Ports 8931, 8000 and 3000 must be free:
-`ss -ltnp | grep -E ':8931|:8000|:3000'` should print nothing.
+Ports 8931, 8000, 3000, 8888 and 8501 must be free:
+`ss -ltnp | grep -E ':8931|:8000|:3000|:8888|:8501'` should print nothing.
 
 ### 2.2 Check Docker
 
@@ -476,7 +476,13 @@ cp .env.example .env
 
 The defaults are fine for a first test: InfluxDB backend, database
 `aiot_blp`, raw 7d, rollup 5m kept 52w, dashboard on 8931, MCP on 8000,
-Grafana on 3000. `.env` is not tracked by git.
+Grafana on 3000, JupyterLab on 8888, Streamlit on 8501. `.env` is not
+tracked by git.
+
+JupyterLab token: `JUPYTER_TOKEN`, default `radiostudio`, also public.
+Anyone with it can run commands in the `jupyter` container, so change it on
+a shared network. Unlike the Grafana password it can be changed at any time
+(edit `.env`, then `docker compose up -d`). Streamlit has no login.
 
 Grafana admin password: `GRAFANA_ADMIN_PASSWORD`, default `radiostudio`. That
 default is public in the repository; if the board is on a shared network,
@@ -509,8 +515,8 @@ nothing is compiled. The image is built once and used by both `gateway` and
 
 Expected:
 
-- `docker compose ps`: `influxdb` is `healthy`; `gateway`, `mcp` and
-  `grafana` are `running`
+- `docker compose ps`: `influxdb` is `healthy`; `gateway`, `mcp`,
+  `grafana`, `jupyter` and `streamlit` are `running`
 - `docker images` shows one `aiot-blp-gateway   local` image and no `<none>`
   image from this build
 - the gateway log shows
@@ -533,7 +539,7 @@ Expected: `SMOKE TEST PASSED`, then the `ok:` lines ending with
 Analysis libraries in the image:
 
 ```
-docker compose exec gateway python -c "import pandas, polars, pyarrow, cbor2, matplotlib, plotly, influxdb, influxdb_client; print('ok', matplotlib.get_backend())"
+docker compose exec gateway python -c "import pandas, polars, pyarrow, cbor2, matplotlib, plotly, influxdb, influxdb_client, sklearn, sktime, streamlit, jupyterlab; print('ok', matplotlib.get_backend())"
 ```
 
 Expected: `ok agg`.
@@ -588,7 +594,45 @@ Open `http://<uno-q-ip>:3000/` on a laptop and on a phone.
 If an older copy of the dashboard is still shown (no **Device** dropdown),
 `docker compose restart grafana`.
 
-### 2.9 Restarts
+### 2.9 Jupyter and Streamlit
+
+Both run from the gateway image and work in the repository's `analysis/`
+folder: `aiot_data.py` (reads InfluxDB into pandas), `example.ipynb` and
+`streamlit_app.py`.
+
+**JupyterLab**: open `http://<uno-q-ip>:8888/` on a laptop.
+
+- [ ] A login page asks for a password or token: enter your `JUPYTER_TOKEN`
+- [ ] The file list on the left shows `aiot_data.py`, `example.ipynb`,
+      `streamlit_app.py`
+- [ ] Open `example.ipynb`, then Run, Run All Cells. With the gateway
+      running for at least 10 minutes:
+  - [ ] the first cell prints `InfluxDB: http://influxdb:8086 database
+        aiot_blp` and a table with one row per device
+  - [ ] the plots show inside the notebook
+  - [ ] "unusual readings" marks points in red (scikit-learn)
+  - [ ] the forecast prints two mean absolute errors and a chart (sktime).
+        With less than 10 minutes of data it says so instead; run the cell
+        again later
+  - [ ] the last cell lists the MCP tools and prints `read_latest` for the
+        chosen sensor (MCP client)
+- [ ] File, New, Notebook: a new notebook appears in `analysis/` on the
+      board (`ls analysis`)
+
+**Streamlit**: open `http://<uno-q-ip>:8501/`.
+
+- [ ] Title **AIoT sensors**; on the left Sensor, Device (only for a sensor
+      with more than one device), Field and Window
+- [ ] A value per device, a line chart (one colour per device) and a table
+      of count / mean / min / max / std
+- [ ] The values move on their own every 10 s
+- [ ] A different Sensor or Field changes the chart
+- [ ] Edit `analysis/streamlit_app.py` on the board (e.g. change the title)
+      and save: the page reloads with the change
+
+From a phone or another laptop on the same network both addresses work too.
+
+### 2.10 Restarts
 
 ```
 docker compose restart
@@ -601,19 +645,21 @@ sudo reboot
 ```
 
 After the board comes back, `docker compose ps` (from the repository folder)
-should show all four containers running again without any action from you,
+should show all six containers running again without any action from you,
 and the data, the Grafana admin login and any "Save as" dashboards should
 still be there.
 
 ### Phase 2 done when
 
 - [ ] the image builds on the board, once (no `<none>` image left behind)
-- [ ] `influxdb` is healthy; `gateway`, `mcp` and `grafana` are running
+- [ ] `influxdb` is healthy; `gateway`, `mcp`, `grafana`, `jupyter` and
+      `streamlit` are running
 - [ ] the smoke and Device ID tests pass inside the container
 - [ ] `BLE scan mode: passive` and real nodes, with MACs, on the dashboard
 - [ ] dashboard Live and History checks (1.7) pass
 - [ ] MCP answers from your laptop
 - [ ] Grafana checks (2.8) pass, on a laptop and a phone
+- [ ] Jupyter and Streamlit checks (2.9) pass
 - [ ] log caps show `max-file:3 max-size:10m`
 - [ ] data and History survive `docker compose restart` and a reboot
 
@@ -626,10 +672,10 @@ still be there.
 | Word | What it is here |
 |---|---|
 | **Image** | A read-only package: an operating system layer, Python, the libraries and the gateway code. `aiot-blp-gateway:local` is built on the board from `Dockerfile`; `influxdb:1.13.1` and `grafana/grafana:13.2.5` are downloaded. Changing the code means building a new image. |
-| **Container** | A running copy of an image. This stack has four: `influxdb`, `gateway`, `mcp`, `grafana` (`gateway` and `mcp` are two containers from the same image). Anything a container writes outside a volume is lost when it is recreated. |
+| **Container** | A running copy of an image. This stack has six: `influxdb`, `gateway`, `mcp`, `grafana`, `jupyter`, `streamlit` (`gateway`, `mcp`, `jupyter` and `streamlit` are four containers from the same image). Anything a container writes outside a volume is lost when it is recreated. |
 | **Volume** | Storage that outlives containers. `influxdb-data` holds the InfluxDB data; `grafana-data` holds Grafana's own database (admin login, "Save as" dashboards). Docker keeps them under its data folder. |
 | **Bind mount** | A host folder shown inside a container. `./gateway/data` (SQLite inventory, rules, token) and `./docker/grafana/...` are bind mounts: you can edit or copy those files directly on the board. |
-| **Compose** | `compose.yaml` describes the four containers, their ports, volumes and settings. `docker compose ...` commands act on all of them (or on the ones you name), and must be run **from the repository folder**. |
+| **Compose** | `compose.yaml` describes the six containers, their ports, volumes and settings. `docker compose ...` commands act on all of them (or on the ones you name), and must be run **from the repository folder**. |
 | **`.env`** | Settings read by compose (database name, retention, ports, Grafana password). |
 
 Which command for which change:
@@ -642,6 +688,8 @@ Which command for which change:
 | A card, with the cards mount below | `docker compose restart gateway mcp` |
 | A rule file in `gateway/data/rules.d/` | `docker compose restart gateway` |
 | Grafana dashboard JSON in `docker/grafana/dashboards/` | nothing; Grafana rereads it within a minute (or `docker compose restart grafana`) |
+| `analysis/streamlit_app.py` | nothing; the open page reloads on save |
+| A notebook or `analysis/aiot_data.py` | in JupyterLab, Kernel, Restart Kernel (to re-import `aiot_data`) |
 
 `up -d` = create and start in the background; `--build` = build the image
 first. Recreating a container keeps volumes and bind-mounted files.
@@ -655,6 +703,7 @@ first. Recreating a container keeps volumes and bind-mounted files.
 | Everything (SQLite backend only) | `gateway/data/gateway.db` | yes | yes |
 | Approved rules, MCP token | `gateway/data/rules.d/` | yes | yes |
 | Grafana login, "Save as" dashboards | volume `aiot-blp_grafana-data` | yes | **no** |
+| Notebooks, Streamlit app, `aiot_data.py` | `analysis/` (repo; your own files there are not tracked until you `git add` them) | yes | yes |
 | Provisioned Grafana dashboard | `docker/grafana/dashboards/aiot_sensors.json` (repo) | yes | yes |
 | Sensor cards | inside the image, from `gateway/cards/` (or mounted, see below) | yes | yes |
 | Container logs | Docker's data folder, 3 x 10 MB per container | no | no |
@@ -680,6 +729,8 @@ Quick checks from the board:
 ```
 curl -s localhost:8931/api/sensors | head -c 300; echo   # dashboard + gateway
 curl -s -o /dev/null -w '%{http_code}\n' localhost:3000/api/health   # Grafana: 200
+curl -s -o /dev/null -w '%{http_code}\n' localhost:8501/_stcore/health   # Streamlit: 200
+curl -s -o /dev/null -w '%{http_code}\n' localhost:8888/login         # JupyterLab: 200
 docker compose exec influxdb influx -execute 'SHOW DATABASES'        # InfluxDB
 docker stats --no-stream                                             # CPU and memory per container
 ```
@@ -697,11 +748,14 @@ docker compose logs -f gateway            # follow live; Ctrl+C stops following 
 docker compose logs --tail 100 gateway    # last 100 lines
 docker compose logs --since 30m gateway   # the last 30 minutes
 docker compose logs -t gateway            # with timestamps
-docker compose logs -f                    # all four, interleaved
+docker compose logs -f                    # all six, interleaved
 docker compose logs gateway | grep -i error
 ```
 
-Services: `gateway` (BLE, decoding, dashboard), `mcp`, `influxdb`, `grafana`.
+Services: `gateway` (BLE, decoding, dashboard), `mcp`, `influxdb`, `grafana`,
+`jupyter`, `streamlit`. Python errors from a notebook show in the notebook,
+not in the log; errors from the Streamlit app show on its page and in
+`docker compose logs streamlit`.
 What a healthy gateway log looks like: `store: influx (...)`, `BLE scan mode:
 passive`, then one `<uid> <MAC> (<part>) online: ...` line per node.
 
@@ -725,7 +779,7 @@ docker compose logs --no-color gateway > ~/gateway-$(date +%F).log
 | Shell inside a container | `docker compose exec gateway bash` (`exit` to leave) |
 | One gateway command in a fresh container | `docker compose run --rm gateway <command>`, e.g. `smoke` |
 
-All four have `restart: unless-stopped`: after a crash or a reboot they come
+All six have `restart: unless-stopped`: after a crash or a reboot they come
 back on their own, unless you stopped them yourself.
 
 The gateway's CLI inside the container: `docker compose exec gateway python
@@ -1081,7 +1135,7 @@ Data is not copied this way; use "Back up and restore" for that.
 | Bluetooth permission error (Phase 1) | Not in the `bluetooth` group yet; log out and back in after `setup.sh` |
 | D-Bus `AccessDenied` / `NotPermitted` (Phase 2) | Check `security_opt: apparmor:unconfined` on `gateway` and that `/run/dbus/system_bus_socket` exists on the host |
 | No adapter found | Set `GATEWAY_BLE_ADAPTER=hci0` in `.env` (Docker) or export it (native); see `bluetoothctl list` |
-| `port is already allocated` | Something else (e.g. App Lab) uses 8931, 8000 or 3000; change the port in `.env` |
+| `port is already allocated` | Something else (e.g. App Lab) uses 8931, 8000, 3000, 8888 or 8501; change the port in `.env` |
 | A container shows `Restarting` | `docker compose logs --tail 50 <service>` |
 | `influxdb` never becomes healthy | `docker compose logs influxdb`; often a full disk (`df -h`) |
 | `no space left on device` | "Disk space": prune, then move Docker's data to /home |
@@ -1099,6 +1153,14 @@ Data is not copied this way; use "Back up and restore" for that.
 | No orange note markers in Grafana | **Journal** switch off, or no notes in the time range |
 | History chart says `no data in this window` | No readings for that field in the window; pick a longer one or wait |
 | A greyed Live row with `(none)` and `-` everywhere | Known node with no readings stored (off for longer than the raw retention). Power the node |
+| JupyterLab keeps showing its login page | Wrong token: it is `JUPYTER_TOKEN` in `.env` (default `radiostudio`); after changing `.env`, `docker compose up -d` |
+| JupyterLab or Streamlit page does not open from another machine | `docker compose ps` shows the service running? Same network? Try `curl` on the machine itself (see "Are the services running?") |
+| Notebook: `Cannot connect` / `Connection refused` to InfluxDB | `influxdb` not healthy, or the notebook runs outside Docker; inside the stack `aiot_data.INFLUX_URL` must be `http://influxdb:8086` |
+| Notebook plots do not show | The `jupyter` service sets `MPLBACKEND` for inline charts; in an older container run `%matplotlib inline` once, or `docker compose up -d` |
+| Notebook: `ModuleNotFoundError` | The library is not in the image: add it to `gateway/requirements-docker.txt`, `docker compose up -d --build` |
+| Cannot save or edit files in `analysis/` outside JupyterLab | They belong to root: `sudo chown -R $USER: analysis` |
+| Streamlit: "Cannot read InfluxDB" | `influxdb` not healthy: `docker compose ps`, `docker compose logs influxdb` |
+| Streamlit: "No readings in the last 24 hours" | No sensor has sent anything for a day; power a node |
 | Log files growing without limit | Containers created before `d0524ec`: `git pull && docker compose up -d`, then check with the `docker inspect` line in 2.7 |
 
 When reporting a problem, include the output of:
