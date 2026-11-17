@@ -66,6 +66,12 @@
   (default `900`), also with the tab open. `UNO_Q_DEPLOY_TEST.md`:
   "Classroom use" (memory per notebook, one folder per student, watching
   with `docker stats`, backup after class).
+- **IST in JupyterLab and Streamlit:** `TZ` in `.env` (default
+  `Asia/Kolkata`) for the `jupyter` and `streamlit` services; `aiot_data`
+  returns times in that zone (`aiot_data.TIMEZONE`) instead of UTC; the
+  image gets Debian's `tzdata`, so `TZ` takes effect (`up -d --build` once).
+  InfluxDB keeps UTC; the dashboard, Grafana and Streamlit's charts already
+  use the browser's time zone.
 - **Windows program for students:** `packaging/windows/` builds
   `aiot-gateway.exe` with PyInstaller (folder build, zipped): gateway,
   dashboard and MCP server in one program on SQLite, no Python needed.

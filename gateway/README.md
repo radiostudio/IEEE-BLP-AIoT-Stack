@@ -353,7 +353,9 @@ What `analysis/` holds:
 
 Inside these containers InfluxDB is `INFLUX_URL` (`http://influxdb:8086`) and
 the MCP server is `MCP_URL` (`http://mcp:8000/mcp`). Charts in notebooks show
-inline (the service sets the matplotlib backend for it).
+inline (the service sets the matplotlib backend for it). Both use the time
+zone `TZ` from `.env` (default `Asia/Kolkata`, IST): `aiot_data` returns
+local times, while InfluxDB keeps UTC.
 
 New notebooks: create them in JupyterLab (they are saved in `analysis/`).
 Your own Streamlit app: edit `analysis/streamlit_app.py`; the page reloads on

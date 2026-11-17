@@ -39,6 +39,13 @@ INFLUX_URL = os.environ.get("INFLUX_URL", "http://localhost:8086")
 INFLUX_DB = os.environ.get("INFLUX_DB", "aiot_blp")
 MCP_URL = os.environ.get("MCP_URL", "http://localhost:8000/mcp")
 
+# The time zone for the times in our tables. InfluxDB stores every time in
+# UTC (the world's reference time); we convert it to local time, so that a
+# reading taken at 10:30 in India shows as 10:30, not 05:00.
+# "Asia/Kolkata" is the name for Indian Standard Time (IST, UTC + 5:30).
+# Docker sets TZ in compose.yaml (changeable in .env).
+TIMEZONE = os.environ.get("TZ", "Asia/Kolkata")
+
 # The gateway stores these numbers with every reading, but they are not
 # measurements (a counter, a status code and the arrival time), so we skip them.
 NOT_MEASURANDS = ["seq", "status", "rx_time"]
@@ -180,7 +187,7 @@ def readings(sensor_uid, field, mac=None, within="1h"):
     within:     how far back to look: "15m", "1h", "24h", "7d", ...
 
     The table has these columns:
-      time    when the reading was taken (UTC time zone)
+      time    when the reading was taken, in local time (TIMEZONE, e.g. IST)
       mac     which device sent it
       value   the measured number
       status  status bits from the sensor; bit 0 = 1 means "sensor ok"
@@ -213,7 +220,12 @@ def readings(sensor_uid, field, mac=None, within="1h"):
 
     # The time arrives as text ("2026-11-17T10:54:07Z"); convert it to a real
     # date and time, so pandas can plot it and do time calculations.
+    # The "Z" at the end means UTC, so we read it as UTC first ...
     df["time"] = pd.to_datetime(df["time"], utc=True, format="ISO8601")
+
+    # ... then convert it to local time. tz_convert changes how the time is
+    # shown, not the moment itself: 05:00 UTC becomes 10:30 IST.
+    df["time"] = df["time"].dt.tz_convert(TIMEZONE)
 
     # put the columns in a clear order
     df = df[["time", "mac", "value", "status"]]

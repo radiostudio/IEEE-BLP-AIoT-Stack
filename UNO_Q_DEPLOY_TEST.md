@@ -608,7 +608,10 @@ folder: `aiot_data.py` (reads InfluxDB into pandas), `example.ipynb` and
 - [ ] Open `example.ipynb`, then Run, Run All Cells. With the gateway
       running for at least 10 minutes:
   - [ ] the first cell prints `InfluxDB: http://influxdb:8086 database
-        aiot_blp` and a table with one row per device
+        aiot_blp`, `Times are shown in: Asia/Kolkata` and a table with one
+        row per device
+  - [ ] the readings table shows times ending in `+05:30` (IST), close to
+        the clock on your laptop
   - [ ] the plots show inside the notebook
   - [ ] "unusual readings" marks points in red (scikit-learn)
   - [ ] the forecast prints two mean absolute errors and a chart (sktime).
@@ -618,6 +621,8 @@ folder: `aiot_data.py` (reads InfluxDB into pandas), `example.ipynb` and
         chosen sensor (MCP client)
 - [ ] File, New, Notebook: a new notebook appears in `analysis/` on the
       board (`ls analysis`)
+- [ ] In that notebook, a cell with `!date` prints the time with `IST`.
+      `UTC` means the time zone is not set: see the troubleshooting table
 
 **Streamlit**: open `http://<uno-q-ip>:8501/`.
 
@@ -1007,6 +1012,17 @@ Wipe everything including Grafana's login and "Save as" dashboards:
 
 Edit `.env`, then `docker compose up -d`. Compose recreates only the
 containers whose settings changed. Shortening a retention deletes older data.
+
+**Time zone (`TZ`, default `Asia/Kolkata`, IST).** Sets the clock in
+JupyterLab and Streamlit (`datetime.now()`, `!date`) and the time zone of
+the times `aiot_data` returns, so notebook tables and charts show IST.
+Other zones: a name from the tz database, e.g. `Europe/London` or `UTC`.
+InfluxDB always stores UTC; that is correct and does not change. The
+gateway dashboard, Grafana and Streamlit's charts show times in the
+viewer's browser time zone, whatever `TZ` says. The image contains the time
+zone files from this version on: after the update that added them, run
+`docker compose up -d --build` once.
+
 `GRAFANA_ADMIN_PASSWORD` is read only on Grafana's first start; to change it
 later:
 
@@ -1234,6 +1250,7 @@ part of the repository).
 | JupyterLab keeps showing its login page | Wrong token: it is `JUPYTER_TOKEN` in `.env` (default `radiostudio`); after changing `.env`, `docker compose up -d` |
 | JupyterLab or Streamlit page does not open from another machine | `docker compose ps` shows the service running? Same network? Try `curl` on the machine itself (see "Are the services running?") |
 | Notebook: `Cannot connect` / `Connection refused` to InfluxDB | `influxdb` not healthy, or the notebook runs outside Docker; inside the stack `aiot_data.INFLUX_URL` must be `http://influxdb:8086` |
+| Notebook times are 5 h 30 min off, or `!date` says `UTC` | Times are in UTC: `TZ` missing in `.env` or an older container (`docker compose up -d`), or an image without time zone files (`docker compose up -d --build`). Check: `docker compose exec jupyter date` should print `IST` |
 | Notebook plots do not show | The `jupyter` service sets `MPLBACKEND` for inline charts; in an older container run `%matplotlib inline` once, or `docker compose up -d` |
 | Notebook: `ModuleNotFoundError` | The library is not in the image: add it to `gateway/requirements-docker.txt`, `docker compose up -d --build` |
 | Notebook: "Kernel died" or variables gone | Stopped for being idle (`JUPYTER_IDLE_SECONDS`) or the memory limit was reached: Kernel → Restart Kernel and Run All Cells; see "Classroom use" |

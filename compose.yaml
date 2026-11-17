@@ -159,6 +159,9 @@ services:
       <<: *gateway-env
       MCP_URL: http://mcp:8000/mcp
       JUPYTER_TOKEN: ${JUPYTER_TOKEN:-radiostudio}
+      # local time for notebooks (datetime.now(), !date) and for the times
+      # aiot_data returns; InfluxDB itself keeps UTC
+      TZ: ${TZ:-Asia/Kolkata}
       # the image sets Agg for scripts; charts in notebooks need the inline one
       MPLBACKEND: module://matplotlib_inline.backend_inline
     depends_on:
@@ -183,6 +186,7 @@ services:
     environment:
       <<: *gateway-env
       MCP_URL: http://mcp:8000/mcp
+      TZ: ${TZ:-Asia/Kolkata}       # local time on the page, as in jupyter
     depends_on:
       influxdb:
         condition: service_healthy

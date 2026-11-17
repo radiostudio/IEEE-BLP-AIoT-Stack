@@ -131,7 +131,8 @@ def live():
         difference = latest["value"] - mean
 
         # How many seconds ago was the newest reading taken?
-        now = pd.Timestamp.now(tz="UTC")
+        # "now" in the same time zone as the readings (aiot_data.TIMEZONE)
+        now = pd.Timestamp.now(tz=aiot_data.TIMEZONE)
         age_s = (now - latest["time"]).total_seconds()
 
         # The status is a number whose bits are flags. "& 1" keeps only

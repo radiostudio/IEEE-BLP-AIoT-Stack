@@ -16,6 +16,13 @@ WORKDIR /app
 COPY gateway/requirements.txt gateway/requirements-docker.txt gateway/
 RUN pip install -r gateway/requirements-docker.txt
 
+# time zone files: the slim image has none, and without them TZ (set in
+# compose.yaml, e.g. Asia/Kolkata) is silently ignored and the clock stays
+# UTC. After pip, so this layer does not invalidate the cached packages.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY gateway/ gateway/
 COPY docker/entrypoint.sh /usr/local/bin/gateway-entrypoint
 RUN chmod +x /usr/local/bin/gateway-entrypoint
