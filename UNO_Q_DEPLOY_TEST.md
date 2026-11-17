@@ -1107,6 +1107,84 @@ docker compose up -d          # no --build
 
 Data is not copied this way; use "Back up and restore" for that.
 
+### Classroom use (many students in Jupyter)
+
+All students share one JupyterLab: they log in with the same token, and
+each open notebook runs its own Python process (a "kernel") on the gateway
+machine. The limit is memory, not the number of logins.
+
+**How much memory.** Measured per open notebook:
+
+| Notebook | Memory |
+|---|---|
+| Only pandas imported | about 110 MB |
+| pandas, matplotlib and scikit-learn | about 220 MB |
+| `example.ipynb`, all cells run | about 300 to 400 MB |
+
+On the Lenovo X1 Carbon (31 GB, about 24 GB free with the whole stack
+running): 50 students × 350 MB ≈ 17.5 GB, so 50 students fit. Check the
+free memory of your machine with `free -h` (column `available`).
+
+Two settings in `.env` protect the rest of the stack:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `JUPYTER_MEMORY_LIMIT` | `20g` | All notebooks together may use at most this. Above it, Docker stops the largest notebook; the gateway, InfluxDB and Grafana keep running. Set it a few GB below the `available` memory |
+| `JUPYTER_IDLE_SECONDS` | `900` (15 min) | A notebook that has run nothing for this long is stopped, even if its tab is still open. Its file is kept; only the variables in memory are lost |
+
+On a machine with less memory, e.g. the Uno Q, lower the limit, e.g.
+`JUPYTER_MEMORY_LIMIT=2g`, and plan for fewer students.
+
+**Before class**
+
+```
+nano .env                     # set JUPYTER_TOKEN, JUPYTER_MEMORY_LIMIT, JUPYTER_IDLE_SECONDS
+docker compose up -d jupyter  # restarts JupyterLab with the new settings
+free -h                       # enough memory available?
+```
+
+Tell the students: the address (`http://<gateway-ip>:8888/`) and the token.
+
+**Each student works in their own folder.** Everyone sees the same files.
+If two students open the same notebook, they overwrite each other's work.
+So each student first:
+
+1. In JupyterLab's file list on the left: the **New Folder** button, and
+   names it after themselves, e.g. `priya`.
+2. Right-click `example.ipynb`, **Copy**; open their folder, right-click,
+   **Paste**.
+3. Works only in the copy inside their folder.
+
+For the Streamlit exercise (`analysis/README.md`) the page file goes in
+`analysis/pages/`, so it needs a unique name too, e.g. `priya_app.py`.
+
+**During class**
+
+```
+docker stats --no-stream      # MEM USAGE / LIMIT of the jupyter row
+```
+
+In JupyterLab, the **Running** panel (the square-in-circle icon on the
+left) lists the open notebooks; the ■ next to one stops it.
+
+**"Kernel died" or variables gone.** The notebook was stopped: idle too
+long, or the memory limit was reached. The file is not lost. In the
+notebook: **Kernel → Restart Kernel and Run All Cells**. If it keeps
+happening during class, `docker stats` shows whether the memory is full;
+ask students to close the notebooks they are not using
+(**File → Close and Shut Down Notebook**).
+
+**After class:** keep a copy of the students' work, then clean up.
+
+```
+tar czf ~/analysis-$(date +%F).tar.gz analysis    # backup of analysis/
+sudo rm -r analysis/priya                         # one student folder
+```
+
+Do not delete `aiot_data.py`, `example.ipynb`, `streamlit_app.py`,
+`README.md` or the `pages` folder itself (`git status` shows what is not
+part of the repository).
+
 ---
 
 ## Going back from Docker to native
@@ -1158,6 +1236,8 @@ Data is not copied this way; use "Back up and restore" for that.
 | Notebook: `Cannot connect` / `Connection refused` to InfluxDB | `influxdb` not healthy, or the notebook runs outside Docker; inside the stack `aiot_data.INFLUX_URL` must be `http://influxdb:8086` |
 | Notebook plots do not show | The `jupyter` service sets `MPLBACKEND` for inline charts; in an older container run `%matplotlib inline` once, or `docker compose up -d` |
 | Notebook: `ModuleNotFoundError` | The library is not in the image: add it to `gateway/requirements-docker.txt`, `docker compose up -d --build` |
+| Notebook: "Kernel died" or variables gone | Stopped for being idle (`JUPYTER_IDLE_SECONDS`) or the memory limit was reached: Kernel → Restart Kernel and Run All Cells; see "Classroom use" |
+| Students' notebooks keep dying during class | `docker stats --no-stream`: the jupyter row at its LIMIT? Close unused notebooks, or raise `JUPYTER_MEMORY_LIMIT` if `free -h` allows, then `docker compose up -d jupyter` |
 | Cannot save or edit files in `analysis/` outside JupyterLab | They belong to root: `sudo chown -R $USER: analysis` |
 | Streamlit: "Cannot read InfluxDB" | `influxdb` not healthy: `docker compose ps`, `docker compose logs influxdb` |
 | Streamlit: "No readings in the last 24 hours" | No sensor has sent anything for a day; power a node |

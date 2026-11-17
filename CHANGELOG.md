@@ -60,6 +60,12 @@
   `analysis/` is written step by step for students: plain `if`/`else` and
   `for` loops, one statement per line, no inline conditions, lambdas or
   comprehensions.
+- **Classroom limits for JupyterLab:** `mem_limit` on the `jupyter` service
+  (`JUPYTER_MEMORY_LIMIT`, default `20g`, for about 50 students at ~350 MB
+  per notebook) and idle notebooks stopped after `JUPYTER_IDLE_SECONDS`
+  (default `900`), also with the tab open. `UNO_Q_DEPLOY_TEST.md`:
+  "Classroom use" (memory per notebook, one folder per student, watching
+  with `docker stats`, backup after class).
 - **Device ID: devices that share a sensor ID are kept apart.** Two nodes of
   one type with the same kit ID (both `1:1`) used to be merged into one
   sensor, and one dropped the other's frames as duplicates. The gateway now

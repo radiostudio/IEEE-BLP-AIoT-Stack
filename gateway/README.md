@@ -353,6 +353,13 @@ image lacks: add it to `gateway/requirements-docker.txt`, then
 `docker compose up -d --build`. `pip install` inside a container is lost when
 it is recreated.
 
+For a class: all students share one JupyterLab (same token), each open
+notebook takes about 110 to 400 MB. `JUPYTER_MEMORY_LIMIT` in `.env`
+(default `20g`) caps all notebooks together, and `JUPYTER_IDLE_SECONDS`
+(default `900`) stops notebooks that have run nothing for 15 minutes, even
+with the tab open. Sizing, one folder per student and cleaning up: see
+`UNO_Q_DEPLOY_TEST.md`, "Classroom use".
+
 Files saved from JupyterLab belong to root on the host (the containers run
 as root): `sudo chown -R $USER: analysis` to edit them outside it. Docker
 opens published ports past `ufw`, so 8888 and 8501 are reachable on the LAN

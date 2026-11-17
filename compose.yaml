@@ -139,8 +139,18 @@ services:
     image: aiot-blp-gateway:local
     pull_policy: never
     entrypoint: ["jupyter", "lab"]
+    # The last three options stop notebooks that have run nothing for
+    # JUPYTER_IDLE_SECONDS (checked every 60 s), even with the tab still
+    # open, so forgotten tabs do not hold memory during a class.
     command: ["--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root",
-              "--ServerApp.root_dir=/app/analysis"]
+              "--ServerApp.root_dir=/app/analysis",
+              "--MappingKernelManager.cull_idle_timeout=${JUPYTER_IDLE_SECONDS:-900}",
+              "--MappingKernelManager.cull_interval=60",
+              "--MappingKernelManager.cull_connected=True"]
+    # All notebooks together may use at most this much memory. Above it Docker
+    # stops the largest notebook ("Kernel died"); the rest of the stack is
+    # not affected.
+    mem_limit: ${JUPYTER_MEMORY_LIMIT:-20g}
     restart: unless-stopped
     logging: *logging
     init: true
