@@ -19,6 +19,33 @@ from collections.abc import Callable
 from ..core import (STATUS_FAULT_INJECTED, STATUS_SENSOR_OK, RawFrame)
 
 
+# Timed faults (stuck, offset, spike, drift): FAULT_DELAY_S of normal
+# readings first, so the data shows before -> during -> after, then the
+# fault for its duration (simulate --duration, default FAULT_DURATION_S),
+# then normal readings again. Times are real seconds, independent of
+# --speedup. "dead" starts at once and never ends.
+FAULT_DELAY_S = 30.0      # normal readings before the fault starts
+FAULT_DURATION_S = 60.0   # default fault length
+# spike and drift change the first 16-bit value of the payload in raw units,
+# the way the SIM firmware's generic offset does, so they work for every
+# analog sensor without per-sensor code (not meaningful for 0/1 sensors).
+SPIKE_EVERY_S = 10.0      # spike: one spiked reading every 10 s (5 in 50 s)
+SPIKE_RAW = 0x2000        # by +8192 raw units: +81.92 degC on a DS18B20, out of any band
+DRIFT_STEP_S = 5.0        # drift: one step every 5 s ...
+DRIFT_STEP_RAW = 50       # ... of 50 raw units: +0.5 degC on a DS18B20 (+6 degC/min,
+                          # under its 10 degC/min card limit), +30 degC in 5 minutes
+# offset: per-sensor in the generators below; DS18B20 +3 degC (6x its accuracy,
+# still a believable temperature: only a neighbouring sensor reveals it)
+
+
+def _bump_first(payload: bytes, delta: int) -> bytes:
+    """payload with delta added to its first 16-bit little-endian value."""
+    if len(payload) < 2:
+        return payload
+    v = (payload[0] | payload[1] << 8) + delta
+    return bytes([v & 0xFF, (v >> 8) & 0xFF]) + payload[2:]
+
+
 def _diurnal(base: float, swing: float, phase: float = 0.0) -> float:
     day = (time.time() % 86400) / 86400
     return base + swing * math.sin(2 * math.pi * (day + phase))
@@ -34,20 +61,36 @@ class _Sim:
         self.seq = random.randint(0, 1000)
         self.boot = time.monotonic()
         self.next_due = time.time() + random.uniform(0, period_s)
-        self.fault: str | None = None  # None | "stuck" | "offset" | "dead"
+        self.fault: str | None = None  # None | stuck | offset | dead | spike | drift
         self._stuck_payload: bytes | None = None
+        self._fault_start = time.monotonic()   # when the timed fault begins
+        self._fault_duration = FAULT_DURATION_S
+        self._spikes = 0                       # spikes sent so far
+        self.offset_on = False                 # read by the generators
 
     def frame(self, kit_id: int) -> RawFrame | None:
         if self.fault == "dead":
             return None
+        t = time.monotonic() - self._fault_start      # seconds into the fault
+        active = self.fault is not None and 0 <= t < self._fault_duration
+        self.offset_on = active and self.fault == "offset"
         payload = self.gen(self)
         status = STATUS_SENSOR_OK
-        if self.fault == "stuck":
-            if self._stuck_payload is None:
+        if active and self.fault == "stuck":
+            if self._stuck_payload is None:           # freeze the first faulty reading
                 self._stuck_payload = payload
             payload = self._stuck_payload
             status |= STATUS_FAULT_INJECTED
-        elif self.fault == "offset":
+        elif active and self.fault == "offset":
+            status |= STATUS_FAULT_INJECTED
+        elif (self.fault == "spike" and t >= 0
+              and self._spikes < self._fault_duration // SPIKE_EVERY_S
+              and t >= (self._spikes + 1) * SPIKE_EVERY_S):
+            self._spikes += 1                         # at 10 s, 20 s, ... of the fault
+            payload = _bump_first(payload, SPIKE_RAW)
+            status |= STATUS_FAULT_INJECTED           # only the spiked readings are wrong
+        elif active and self.fault == "drift":
+            payload = _bump_first(payload, int(t // DRIFT_STEP_S) * DRIFT_STEP_RAW)
             status |= STATUS_FAULT_INJECTED
         self.seq = (self.seq + 1) & 0xFFFF
         return RawFrame(
@@ -68,8 +111,8 @@ def _i16(v):
 
 def _gen_ds18b20(s):
     t = _diurnal(26.0, 4.0) + random.gauss(0, 0.06)
-    if s.fault == "offset":
-        t += 8.0
+    if s.offset_on:
+        t += 3.0
     return _i16(t * 100)
 
 
@@ -95,7 +138,7 @@ def _gen_pir(s):
 def _gen_420ma(s):
     wind = max(0.0, _diurnal(4.0, 3.0, 0.3) + random.gauss(0, 0.8))
     ma = 4.0 + (wind / 30.0) * 16.0
-    if s.fault == "offset":
+    if s.offset_on:
         ma = 0.2  # broken-loop demonstration: below live zero
     return _u16(ma * 100) + _i16(wind * 100)
 
@@ -119,7 +162,7 @@ def _gen_scd41(s):
 
 def _gen_veml7700(s):
     lux = max(0.0, _diurnal(15000, 25000, -0.25))
-    if s.fault == "offset":
+    if s.offset_on:
         lux *= 0.05  # smeared window
     return struct.pack("<I", int(lux * 100))
 
@@ -160,7 +203,7 @@ def _gen_sen0193(s):
 
 
 def _gen_water(s):
-    wet = 1 if s.fault == "offset" else 0
+    wet = 1 if s.offset_on else 0
     raw_mv = 150 if wet else 3100
     return bytes([wet]) + _u16(raw_mv)
 
@@ -203,11 +246,18 @@ class SimulatedSource:
             for n in ((1, 2) if tid in (twins or ()) else (1,))
         ]
 
-    def inject_fault(self, type_id: int, fault: str | None) -> None:
+    def inject_fault(self, type_id: int, fault: str | None,
+                     delay_s: float = FAULT_DELAY_S,
+                     duration_s: float = FAULT_DURATION_S) -> None:
+        """Timed faults start after delay_s of normal readings and last
+        duration_s; "dead" starts at once and never ends."""
         for s in self.sims:
             if s.type_id == type_id:
                 s.fault = fault
                 s._stuck_payload = None
+                s._fault_start = time.monotonic() + delay_s
+                s._fault_duration = duration_s
+                s._spikes = 0
 
     async def run(self, on_frame) -> None:
         while True:

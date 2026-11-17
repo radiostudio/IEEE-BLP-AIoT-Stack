@@ -14,6 +14,7 @@
                                  (--backend influx: against InfluxDB instead of SQLite)
   python -m gateway migrate-sqlite   copy an existing SQLite gateway.db into InfluxDB
   python -m gateway relay on|off print the type-18 relay command frame for nRF Connect
+  python -m gateway inject <sensor> stuck|offset|spike|drift|stop   fault on a live sensor (QA)
 
 Run from the directory that contains the gateway/ package.
 """
@@ -63,10 +64,12 @@ def cmd_run(args) -> None:
     from .actuation.link import ActuatorLink
     cfg = load_config()
     ctx = _ctx(announce=True)
+    from .faults import FaultInjector
     link = ActuatorLink()
     link.start()   # finds the actuator on a USB serial port, reconnects forever
     engine = RuleEngine(ctx.store, actuator=link)
-    pipe = Pipeline(ctx.store, ctx.registry, engine)
+    injector = FaultInjector(ctx.registry, store=ctx.store)   # clears faults left from before a restart
+    pipe = Pipeline(ctx.store, ctx.registry, engine, injector=injector)
     if not args.no_dashboard:
         serve(ctx, port=args.port or cfg.get("dashboard_port", 8080),
               background=True)
@@ -84,7 +87,14 @@ def cmd_run(args) -> None:
 
 def cmd_simulate(args) -> None:
     from .dashboard.server import serve
-    from .scanner.sim_source import SimulatedSource
+    from .scanner.sim_source import FAULT_DELAY_S, SimulatedSource
+    if args.fault:
+        # checked before anything starts, so a typo records nothing
+        type_id, fault = args.fault.split(":")
+        fault = fault.strip().lower()   # STUCK, Stuck and stuck all work
+        if fault not in ("stuck", "offset", "spike", "drift"):
+            raise SystemExit(f"gateway: error: unknown fault '{fault}': "
+                             f"use stuck, offset, spike or drift")
     cfg = load_config()
     ctx = _ctx(announce=True)
     engine = RuleEngine(ctx.store)
@@ -94,9 +104,9 @@ def cmd_simulate(args) -> None:
               background=True)
     src = SimulatedSource(kit_id=1, speedup=args.speedup, twins=args.twin)
     if args.fault:
-        type_id, fault = args.fault.split(":")
-        src.inject_fault(int(type_id), fault)
-        print(f"[sim] fault injected on type {type_id}: {fault}")
+        src.inject_fault(int(type_id), fault, duration_s=args.duration)
+        print(f"[sim] fault on type {type_id}: {fault}, starts in "
+              f"{FAULT_DELAY_S:.0f} s, lasts {args.duration:.0f} s, then normal")
     print("[gateway] simulating all 14 SIMs (Ctrl+C to stop)")
     print("[gateway] open the dashboard in your browser to watch the values")
     try:
@@ -154,6 +164,22 @@ def cmd_downsample(args) -> None:
     print(json.dumps(downsample(ctx.store,
                                 period_s=cfg.get("downsample_period_s", 300),
                                 keep_raw_s=args.keep_raw_s), indent=2))
+
+
+def cmd_inject(args) -> None:
+    from .decoder.registry import CardRegistry
+    from .faults import FaultError, request, status
+    if args.sensor.lower() == "status":
+        print(status())
+        return
+    if args.action is None:
+        raise SystemExit("gateway: error: say what to inject, e.g. "
+                         f"inject {args.sensor} stuck --duration 60 (or offset 3, spike, drift 0.5, stop)")
+    try:
+        print("[inject]", request(CardRegistry(), args.sensor, args.action, args.amount,
+                                  args.duration))
+    except FaultError as exc:
+        raise SystemExit(f"gateway: error: {exc}")
 
 
 def cmd_relay(args) -> None:
@@ -242,7 +268,11 @@ def main() -> None:
     s.add_argument("--no-dashboard", action="store_true")
     s.add_argument("--port", type=int, default=None)
     s.add_argument("--speedup", type=float, default=1.0)
-    s.add_argument("--fault", help="type_id:fault e.g. 1:stuck, 7:offset, 13:dead")
+    s.add_argument("--fault", help="type_id:fault, fault = stuck|offset|spike|drift "
+                                   "(any case), e.g. 1:stuck, 7:offset, 1:spike, 1:drift")
+    s.add_argument("--duration", type=float, default=60.0, metavar="SECONDS",
+                   help="how long a stuck/offset/spike/drift fault lasts, after "
+                        "30 s of normal readings (default 60)")
     s.add_argument("--twin", type=int, action="append", metavar="TYPE_ID",
                    help="add a second device of this sensor type under the same "
                         "kit ID (different MAC); repeat for more types")
@@ -281,6 +311,13 @@ def main() -> None:
     s.add_argument("--dry-run", action="store_true",
                    help="count what would be copied, write nothing")
     s.set_defaults(fn=cmd_migrate_sqlite)
+
+    s = sub.add_parser("inject", help="fault injection on a live sensor (QA): stuck, offset, spike, drift, stop, status")
+    s.add_argument("sensor", help="1:1 (temperature), 1:17 (humidity), 1:6 (CO2) or 1:2 (IAQ), or: status")
+    s.add_argument("action", nargs="?", help="stuck | offset | spike | drift | stop (any case)")
+    s.add_argument("amount", nargs="?", type=float, help="offset or drift amount, e.g. 3 or 0.5")
+    s.add_argument("--duration", type=float, metavar="SECONDS", help="stuck: how long")
+    s.set_defaults(fn=cmd_inject)
 
     s = sub.add_parser("relay", help="print the relay command frame (type 18) to advertise from nRF Connect")
     s.add_argument("state", choices=["on", "off"])

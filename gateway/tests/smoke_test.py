@@ -151,7 +151,7 @@ def main(backend: str = "sqlite") -> int:
               any(r["rule"] == "smoke_rule" for r in engine.fired_log))
 
         # 5. fault injection visible end to end
-        src.inject_fault(1, "stuck")
+        src.inject_fault(1, "stuck", delay_s=0)   # start at once, not after the 1 min baseline
         for _ in range(3):
             src.tick_once(pipe.on_frame)
             # distinct tick_ms per frame, as on real nodes: InfluxDB keeps

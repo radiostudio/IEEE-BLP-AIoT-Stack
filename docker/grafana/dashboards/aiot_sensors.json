@@ -149,31 +149,6 @@
         "iconColor": "rgba(0, 211, 255, 1)",
         "name": "Annotations & Alerts",
         "type": "dashboard"
-      },
-      {
-        "name": "Journal",
-        "datasource": {
-          "type": "influxdb",
-          "uid": "aiot-influx"
-        },
-        "enable": true,
-        "iconColor": "orange",
-        "target": {
-          "refId": "Journal",
-          "rawQuery": true,
-          "resultFormat": "table",
-          "query": "SELECT \"note\", \"sensor_uid\" FROM \"autogen\".\"annotations\" WHERE (\"sensor_uid\" =~ /^$sensor$/ OR \"sensor_uid\" = '') AND $timeFilter"
-        },
-        "mappings": {
-          "text": {
-            "source": "field",
-            "value": "note"
-          },
-          "tags": {
-            "source": "field",
-            "value": "sensor_uid"
-          }
-        }
       }
     ]
   },

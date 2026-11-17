@@ -6,7 +6,7 @@ scanner (BLE or simulator) -> dedupe -> card decode -> reconcile -> store
 
 from __future__ import annotations
 
-from .core import RawFrame
+from .core import STATUS_FAULT_INJECTED, RawFrame
 from .decoder.counters import CounterTracker
 from .decoder.reconcile import Reconciler
 from .decoder.registry import CardRegistry
@@ -16,9 +16,10 @@ from .store.db import Store
 
 class Pipeline:
     def __init__(self, store: Store, registry: CardRegistry | None = None,
-                 rule_engine=None):
+                 rule_engine=None, injector=None):
         self.store = store
         self.registry = registry or CardRegistry()
+        self.injector = injector   # gateway.faults.FaultInjector: live faults for QA
         self.deduper = Deduper()
         self.reconciler = Reconciler()
         self.counters = CounterTracker()
@@ -47,6 +48,12 @@ class Pipeline:
         card, values = self.registry.decode(frame)
         if card is not None:
             values = self.counters.apply(frame, card, values)
+        if self.injector is not None and values:
+            # an injected fault replaces the live value for everything below:
+            # storage, dashboards, AI tools and rules; the truth bit marks it
+            values, faulted = self.injector.apply(frame.uid, values)
+            if faulted:
+                frame.status |= STATUS_FAULT_INJECTED
         if frame.device_key not in self._announced:
             self._announced.add(frame.device_key)
             pretty = "  ".join(f"{k}={v:.2f}" for k, v in values.items())

@@ -96,7 +96,6 @@
     </span>
     <label>Sensor <select id="sensor"><option value="">All sensors</option></select></label>
     <label class="chk"><input type="checkbox" id="band" checked> Min/max band</label>
-    <label class="chk"><input type="checkbox" id="notes" checked> Journal notes</label>
     <span id="meta"></span>
   </div>
   <div id="grid" class="grid"></div>
@@ -226,7 +225,6 @@ const hist = {
   updated: 0,
   sens: {},            // devKey -> [{card, dot, status, dlv}], one per chart of that device
   charts: {},          // devKey|field -> chart
-  notes: [],
   cards: {},           // uid -> {part, units}
 };
 
@@ -301,7 +299,6 @@ async function loadHistory() {
   const win = hist.win, bucket = bucketFor(win);
   try {
     const sensors = await getJSON('/api/sensors');
-    const notes = await getJSON('/api/annotations?since=' + win).catch(() => []);
     sensors.sort(byUid);
     const loaded = await Promise.all(sensors.map(async s => {
       const uid = encodeURIComponent(s.uid);
@@ -324,7 +321,6 @@ async function loadHistory() {
     hist.sens = {};
     const wide = new Set(Object.values(hist.charts).filter(c => c.wide).map(c => c.key + '|' + c.field));
     hist.charts = {};
-    hist.notes = notes;
     const sel = document.getElementById('sensor');
     const pick = sel.value;
     sel.length = 1;
@@ -471,27 +467,6 @@ function draw(c) {
     }
   }
 
-  if (document.getElementById('notes').checked) {
-    const taken = [];                   // [x0, x1] of labels already drawn
-    for (const a of hist.notes) {
-      if (a.ts < t0 || (a.sensor_uid && a.sensor_uid !== c.uid)) continue;
-      const x = X(a.ts).toFixed(1);
-      const label = String(a.note ?? '');
-      const short = label.length > (c.wide ? 40 : 18) ? label.slice(0, c.wide ? 39 : 17) + '…' : label;
-      // near the right edge the label goes on the left of the marker
-      const left = +x > W - R - (c.wide ? 260 : 120);
-      // a label that would overlap an earlier one is left off; the marker stays and hovering it shows the note
-      const lw = short.length * 5.6 + 8;
-      const span = left ? [+x - lw, +x] : [+x, +x + lw];
-      const fits = !taken.some(([a0, a1]) => span[0] < a1 && span[1] > a0);
-      if (fits) taken.push(span);
-      s += `<g><title>${esc(new Date(a.ts * 1000).toLocaleString() + ' [' + (a.author ?? '?') + '] ' + label)}</title>` +
-        `<line x1="${x}" x2="${x}" y1="${T}" y2="${H - B}" stroke="#c46b00" stroke-dasharray="3 3"/>` +
-        `<path d="M${(+x - 4).toFixed(1)} ${T - 2} L${(+x + 4).toFixed(1)} ${T - 2} L${x} ${T + 5}Z" fill="#c46b00"/>` +
-        (fits ? `<text x="${(+x + (left ? -6 : 6)).toFixed(1)}" y="${T + 6}" font-size="10" fill="#c46b00" text-anchor="${left ? 'end' : 'start'}">${esc(short)}</text>` : '') +
-        `<rect x="${(+x - 5).toFixed(1)}" y="${T - 2}" width="10" height="${H - T - B + 2}" fill="transparent"/></g>`;
-    }
-  }
   svg.innerHTML = s;
   c.geo = { X, Y, pts, W, H, T, B };
 }
@@ -530,7 +505,6 @@ document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click'
 }));
 document.getElementById('sensor').addEventListener('change', applyFilter);
 document.getElementById('band').addEventListener('change', drawAll);
-document.getElementById('notes').addEventListener('change', drawAll);
 let resizeTimer = null;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(drawAll, 150); });
 // keeps the time axis sliding and the "updated" age current

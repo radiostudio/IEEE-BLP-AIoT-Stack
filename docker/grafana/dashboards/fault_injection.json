@@ -1,0 +1,298 @@
+{
+  "uid": "aiot-fault-injection",
+  "title": "Fault injection (QA)",
+  "description": "QA view of live fault injection (python -m gateway inject): pick a sensor; the graph shows its live readings from the real database. The collapsed Answer row shows when a fault was really active. Provisioned from docker/grafana/dashboards in the repository; use Save as to change it.",
+  "tags": [
+    "aiot",
+    "faults"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "10s",
+  "schemaVersion": 41,
+  "version": 5,
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "sensor",
+        "label": "Sensor",
+        "type": "custom",
+        "query": "DS18B20 1:1 temperature : 1:1,SHT40 1:17 humidity : 1:17,SCD41 1:6 CO2 : 1:6,BME688 1:2 IAQ : 1:2",
+        "description": "The sensor and value to watch",
+        "multi": false,
+        "includeAll": false,
+        "current": {
+          "selected": true,
+          "text": "DS18B20 1:1 temperature",
+          "value": "1:1"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "DS18B20 1:1 temperature",
+            "value": "1:1"
+          },
+          {
+            "selected": false,
+            "text": "SHT40 1:17 humidity",
+            "value": "1:17"
+          },
+          {
+            "selected": false,
+            "text": "SCD41 1:6 CO2",
+            "value": "1:6"
+          },
+          {
+            "selected": false,
+            "text": "BME688 1:2 IAQ",
+            "value": "1:2"
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "${sensor:text}",
+      "description": "Every live reading of the selected sensor, not averaged, so a single spike stays visible. Faults come from: python -m gateway inject <sensor> stuck|offset|spike|drift. Stuck = flat line, offset = sudden constant step, spike = one needle, drift = a steady climb.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "aiot-influx"
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "aiot-influx"
+          },
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "query": "SELECT \"temperature_c\" FROM \"aiot_blp\".\"raw\".\"readings\" WHERE \"sensor_uid\" = '1:1' AND \"sensor_uid\" = '$sensor' AND $timeFilter",
+          "alias": "DS18B20 1:1 temperature (degC)"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "aiot-influx"
+          },
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "query": "SELECT \"humidity_pct\" FROM \"aiot_blp\".\"raw\".\"readings\" WHERE \"sensor_uid\" = '1:17' AND \"sensor_uid\" = '$sensor' AND $timeFilter",
+          "alias": "SHT40 1:17 humidity (%RH)"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "aiot-influx"
+          },
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "query": "SELECT \"co2_ppm\" FROM \"aiot_blp\".\"raw\".\"readings\" WHERE \"sensor_uid\" = '1:6' AND \"sensor_uid\" = '$sensor' AND $timeFilter",
+          "alias": "SCD41 1:6 CO2 (ppm)"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "aiot-influx"
+          },
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "query": "SELECT \"iaq\" FROM \"aiot_blp\".\"raw\".\"readings\" WHERE \"sensor_uid\" = '1:2' AND \"sensor_uid\" = '$sensor' AND $timeFilter",
+          "alias": "BME688 1:2 IAQ (index)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "pointSize": 3,
+            "spanNulls": false,
+            "insertNulls": 60000
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "row",
+      "title": "Answer (QA): when a fault was really active",
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "panels": [
+        {
+          "id": 3,
+          "type": "state-timeline",
+          "title": "Fault active: ${sensor:text}",
+          "description": "From the status of every reading: green = reading, no fault; red = reading changed by an injected fault (fault_injected bit, status 5); grey = no reading.",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "aiot-influx"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 24,
+            "x": 0,
+            "y": 15
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "influxdb",
+                "uid": "aiot-influx"
+              },
+              "rawQuery": true,
+              "resultFormat": "time_series",
+              "query": "SELECT \"status\" FROM \"aiot_blp\".\"raw\".\"readings\" WHERE \"sensor_uid\" = '$sensor' AND $timeFilter",
+              "alias": "$sensor"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "green"
+              },
+              "mappings": [
+                {
+                  "type": "range",
+                  "options": {
+                    "from": 4,
+                    "to": 255,
+                    "result": {
+                      "text": "FAULT",
+                      "color": "red",
+                      "index": 0
+                    }
+                  }
+                },
+                {
+                  "type": "range",
+                  "options": {
+                    "from": 0,
+                    "to": 3,
+                    "result": {
+                      "text": "normal",
+                      "color": "green",
+                      "index": 1
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "showValue": "never",
+            "mergeValues": true,
+            "alignValue": "left",
+            "rowHeight": 0.8,
+            "legend": {
+              "showLegend": false
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          }
+        },
+        {
+          "id": 4,
+          "type": "table",
+          "title": "Fault events: ${sensor:text} (exact times)",
+          "description": "Each injected fault's start and end, newest first.",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "aiot-influx"
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 24,
+            "x": 0,
+            "y": 20
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "influxdb",
+                "uid": "aiot-influx"
+              },
+              "rawQuery": true,
+              "resultFormat": "table",
+              "query": "SELECT \"note\" FROM \"aiot_blp\".\"autogen\".\"annotations\" WHERE \"author\" = 'fault-injector' AND \"sensor_uid\" = '$sensor' AND $timeFilter ORDER BY time DESC"
+            }
+          ],
+          "options": {
+            "showHeader": true
+          }
+        }
+      ]
+    }
+  ]
+}
