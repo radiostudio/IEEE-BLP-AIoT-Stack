@@ -53,6 +53,13 @@
   scikit-learn anomaly flags, sktime forecast, MCP client) and
   `streamlit_app.py` (live chart per sensor, device and field).
   `.env.example`: `JUPYTER_PORT`, `STREAMLIT_PORT`, `JUPYTER_TOKEN`.
+- `analysis/README.md`: student exercise, write a first Streamlit page in
+  JupyterLab. `analysis/pages/` ships empty, so pages added there show up
+  without restarting Streamlit. `aiot_data` returns no rows, instead of an
+  error, before the gateway has created the database. The example code in
+  `analysis/` is written step by step for students: plain `if`/`else` and
+  `for` loops, one statement per line, no inline conditions, lambdas or
+  comprehensions.
 - **Device ID: devices that share a sensor ID are kept apart.** Two nodes of
   one type with the same kit ID (both `1:1`) used to be merged into one
   sensor, and one dropped the other's frames as duplicates. The gateway now

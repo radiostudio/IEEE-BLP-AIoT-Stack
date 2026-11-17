@@ -335,6 +335,11 @@ What `analysis/` holds:
   scikit-learn, forecast with sktime, call the MCP server as an MCP client.
 - `streamlit_app.py`: pick a sensor, device and field; live chart, latest
   value and statistics, refreshed every 10 s.
+- `pages/`: every `.py` file here becomes another page of the Streamlit app.
+  Shipped empty: Streamlit only watches a `pages` folder that existed when it
+  started (if it was created later: `docker compose restart streamlit`).
+- `README.md`: a step-by-step exercise for students, writing their first
+  Streamlit page in JupyterLab.
 
 Inside these containers InfluxDB is `INFLUX_URL` (`http://influxdb:8086`) and
 the MCP server is `MCP_URL` (`http://mcp:8000/mcp`). Charts in notebooks show
