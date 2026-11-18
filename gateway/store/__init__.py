@@ -31,5 +31,6 @@ def open_store(cfg: dict):
             username=ix.get("username"), password=ix.get("password"),
             raw_retention=ix["raw_retention"],
             rollup_period=ix["rollup_period"],
-            rollup_retention=ix["rollup_retention"])
+            rollup_retention=ix["rollup_retention"],
+            manage_schema=ix.get("manage_schema", True))
     raise ValueError(f"unknown store_backend '{backend}': use sqlite or influx")

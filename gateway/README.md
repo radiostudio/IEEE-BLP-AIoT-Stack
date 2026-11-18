@@ -32,7 +32,9 @@ Environment variables override `config.json` in memory (the file is never
 rewritten): `GATEWAY_STORE_BACKEND`, `GATEWAY_KIT_ID`, `GATEWAY_BLE_ADAPTER`,
 `GATEWAY_RULES_DIR`, `GATEWAY_DB_PATH` (the SQLite file), `INFLUX_URL`, `INFLUX_DB`, `INFLUX_USER`,
 `INFLUX_PASSWORD`, `INFLUX_RAW_RETENTION`, `INFLUX_ROLLUP_PERIOD`,
-`INFLUX_ROLLUP_RETENTION`, `INFLUX_META_DB_PATH`. The effective store is
+`INFLUX_ROLLUP_RETENTION`, `INFLUX_META_DB_PATH`, `INFLUX_MANAGE_SCHEMA`
+(`false`: skip creating the database and retentions at startup, for a
+login that is not an InfluxDB admin; the `mcp` container). The effective store is
 printed at startup:
 
 ```
@@ -218,7 +220,7 @@ JupyterLab and Streamlit:
 
 | Service | What it runs | Port |
 |---|---|---|
-| `influxdb` | `influxdb:1.13.1`, data in the `influxdb-data` volume | none published: only the gateway containers reach it |
+| `influxdb` | `influxdb:1.13.1`, data in the `influxdb-data` volume, login required | none published: only the other containers reach it |
 | `gateway` | `run`: BLE scan, rules, dashboard | `8931` |
 | `mcp` | `mcp`: MCP server (streamable HTTP, path `/mcp`) | `8000` |
 | `grafana` | `grafana/grafana:13.2.5`, reads InfluxDB; see "Grafana" below | `3000` |
@@ -240,9 +242,16 @@ VM with no access to the laptop's Bluetooth.
 
    ```
    cp .env.example .env              # once; settings live in .env
+   nano .env                         # set the three INFLUX_*_PASSWORD values
    docker compose up -d --build
    docker compose logs -f gateway
    ```
+
+   InfluxDB asks for a login. Only `gateway` logs in as `admin` and can
+   change or delete data; `mcp` can read and add notes; `jupyter`,
+   `streamlit` and `grafana` log in as `reader` and can only read. The image
+   creates the users on the first start; an install that already has data
+   adds them by hand: `UNO_Q_DEPLOY_TEST.md`, "Database users".
 
    Expect `[gateway] store: influx (aiot_blp @ http://influxdb:8086) ...`,
    then `BLE scan mode: passive` and sensors coming online.
@@ -336,6 +345,11 @@ survive restarts and can be edited on the host:
 | JupyterLab | `http://<address>:8888/` (`JUPYTER_PORT`) | token `JUPYTER_TOKEN` from `.env`, default `radiostudio`: change it on a shared network, anyone with it can run commands in the container |
 | Streamlit | `http://<address>:8501/` (`STREAMLIT_PORT`) | none: anyone on the LAN can view it |
 
+Both log in to InfluxDB as `reader`: a notebook can read every reading but
+not change or delete any. `aiot_data.py` and `example.ipynb` are mounted
+read-only in JupyterLab (File, Save Notebook As keeps a copy); after a
+`git pull` that changed them, `docker compose restart jupyter`.
+
 What `analysis/` holds:
 
 - `aiot_data.py`: `sensors()` (one row per device with data, and its last
@@ -396,7 +410,7 @@ docker compose restart gateway
 # capability token for deploy_rule
 docker compose exec gateway python -m gateway token
 
-# look at the data
+# look at the data (logs in as reader; add -username admin -password ... to change data)
 docker compose exec influxdb influx -database aiot_blp -execute 'SHOW MEASUREMENTS'
 
 # Grafana log (provisioning errors show here)
@@ -422,12 +436,16 @@ docker compose cp influxdb:/tmp/influx-bk $B/influx
 ls -R $B | head
 
 sudo rm -f gateway/data/gateway_meta.db* gateway/data/gateway.db*
-docker compose exec influxdb influx -execute 'DROP DATABASE aiot_blp'
+docker compose exec influxdb influx -username admin -password <admin-password> -execute 'DROP DATABASE aiot_blp'
 docker compose up -d --build
+docker compose exec influxdb influx -username admin -password <admin-password> -execute 'GRANT ALL ON aiot_blp TO mcp'
+docker compose exec influxdb influx -username admin -password <admin-password> -execute 'GRANT READ ON aiot_blp TO reader'
 ```
 
-The gateway recreates the InfluxDB database, its retention policies and the
-rollup query at start, and a new `gateway_meta.db`. A backup restores only
+`<admin-password>` is `INFLUX_ADMIN_PASSWORD` from `.env`. Dropping the
+database also removes the `mcp` and `reader` rights on it, hence the two
+`GRANT` lines. The gateway recreates the InfluxDB database, its retention
+policies and the rollup query at start, and a new `gateway_meta.db`. A backup restores only
 with the code it was made with (`influxd restore -portable`, then copy the
 SQLite files back).
 

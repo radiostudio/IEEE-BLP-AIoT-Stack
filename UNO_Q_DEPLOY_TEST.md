@@ -472,9 +472,17 @@ space", "Move Docker's data to /home").
 
 ```
 cp .env.example .env
+nano .env        # set INFLUX_ADMIN_PASSWORD, INFLUX_MCP_PASSWORD, INFLUX_READ_PASSWORD
 ```
 
-The defaults are fine for a first test: InfluxDB backend, database
+The three InfluxDB passwords are required: until they are set, every
+`docker compose` command stops with `set INFLUX_..._PASSWORD in .env`. Use
+letters and digits only. Only the gateway logs in as `admin` and can change
+or delete data; MCP (`mcp`) can read and add notes; JupyterLab, Streamlit and
+Grafana log in as `reader` and can only read. Keep the admin and mcp
+passwords secret. See "Database users" for details.
+
+The other defaults are fine for a first test: InfluxDB backend, database
 `aiot_blp`, raw 7d, rollup 5m kept 52w, dashboard on 8931, MCP on 8000,
 Grafana on 3000, JupyterLab on 8888, Streamlit on 8501. `.env` is not
 tracked by git.
@@ -492,12 +500,17 @@ change it in `.env` **now**. Grafana reads it only on its first start.
 
 Only if you made the backup in 2.1 **with Device ID code** (`8892218` or
 later). Older backups have no MACs and the gateway refuses them. Do this
-**before** the gateway starts:
+**before** the gateway starts. InfluxDB creates an empty `aiot_blp` on its
+first start, and a restore needs it gone, so drop it first and give the
+users their rights back after (`<admin-password>` = `INFLUX_ADMIN_PASSWORD`):
 
 ```
 docker compose up -d influxdb
+docker compose exec influxdb influx -username admin -password <admin-password> -execute 'DROP DATABASE aiot_blp'
 docker compose cp ~/aiot_blp_backup influxdb:/tmp/aiot_blp_backup
 docker compose exec influxdb influxd restore -portable -db aiot_blp /tmp/aiot_blp_backup
+docker compose exec influxdb influx -username admin -password <admin-password> -execute 'GRANT ALL ON aiot_blp TO mcp'
+docker compose exec influxdb influx -username admin -password <admin-password> -execute 'GRANT READ ON aiot_blp TO reader'
 ```
 
 ### 2.5 Build and start the stack
@@ -623,6 +636,16 @@ folder: `aiot_data.py` (reads InfluxDB into pandas), `example.ipynb` and
       board (`ls analysis`)
 - [ ] In that notebook, a cell with `!date` prints the time with `IST`.
       `UTC` means the time zone is not set: see the troubleshooting table
+- [ ] Students cannot change the data. In the same notebook:
+      ```python
+      import aiot_data
+      aiot_data.client().drop_database("aiot_blp")
+      ```
+      must fail with `not authorized`. If it runs without an error, the
+      database is gone: restore it from a backup and see "Database users"
+- [ ] `example.ipynb` and `aiot_data.py` are read-only: editing
+      `example.ipynb` and pressing Ctrl+S offers "Save as" (a copy) instead
+      of saving, and deleting `aiot_data.py` in the file list fails
 
 **Streamlit**: open `http://<uno-q-ip>:8501/`.
 
@@ -807,6 +830,15 @@ removes the previous image, which the rebuild leaves as `<none>`.
 If the release notes say the database format changed, follow "Reset
 everything" first.
 
+`aiot_data.py` and `example.ipynb` are mounted read-only into JupyterLab
+one file at a time, and such a mount keeps the old file after `git pull`
+replaced it. If `git pull` changed either file, also run
+`docker compose restart jupyter` (this stops the running notebooks).
+
+Updating from a version without InfluxDB logins (before the "Database
+users" section existed)? Follow "Add logins to an existing install" in that
+section **before** `git pull`.
+
 ### Add a new sensor card without rebuilding
 
 Cards are read from `/app/gateway/cards/` **inside the image**, and only when
@@ -923,7 +955,12 @@ Stop the writers first, so they do not put back what you delete:
 docker compose stop gateway mcp
 ```
 
-Then, in the InfluxDB shell (`docker compose exec influxdb influx -database aiot_blp`):
+Then, in the InfluxDB shell as admin (the default login, `reader`, cannot
+delete; `<admin-password>` = `INFLUX_ADMIN_PASSWORD` in `.env`):
+
+```
+docker compose exec influxdb influx -username admin -password <admin-password> -database aiot_blp
+```
 
 | Delete | Query |
 |---|---|
@@ -976,12 +1013,18 @@ Restore (into an empty `aiot_blp`):
 
 ```
 docker compose stop gateway mcp
-docker compose exec influxdb influx -execute 'DROP DATABASE aiot_blp'
+docker compose exec influxdb influx -username admin -password <admin-password> -execute 'DROP DATABASE aiot_blp'
 docker compose cp $B/influx influxdb:/tmp/influx-restore
 docker compose exec influxdb influxd restore -portable -db aiot_blp /tmp/influx-restore
+docker compose exec influxdb influx -username admin -password <admin-password> -execute 'GRANT ALL ON aiot_blp TO mcp'
+docker compose exec influxdb influx -username admin -password <admin-password> -execute 'GRANT READ ON aiot_blp TO reader'
 sudo cp $B/gateway_meta.db* gateway/data/
 docker compose start gateway mcp
 ```
+
+Dropping a database also removes the users' rights on it, hence the two
+`GRANT` lines; without them MCP, JupyterLab, Streamlit and Grafana get
+`not authorized`.
 
 A backup restores only with code that has the same database format (for now:
 `8892218` or later).
@@ -994,12 +1037,16 @@ workshop). Back up first (above), then:
 ```
 docker compose stop gateway mcp
 sudo rm -f gateway/data/gateway_meta.db* gateway/data/gateway.db*
-docker compose exec influxdb influx -execute 'DROP DATABASE aiot_blp'
+docker compose exec influxdb influx -username admin -password <admin-password> -execute 'DROP DATABASE aiot_blp'
 docker compose up -d
+docker compose exec influxdb influx -username admin -password <admin-password> -execute 'GRANT ALL ON aiot_blp TO mcp'
+docker compose exec influxdb influx -username admin -password <admin-password> -execute 'GRANT READ ON aiot_blp TO reader'
 ```
 
 The gateway recreates the database, retention policies, rollup query and
-inventory at start. Rules and the token in `rules.d/` are kept.
+inventory at start; the `GRANT` lines give the other users their rights on
+the new database back (wait a few seconds after `up -d`, until the gateway
+has created it). Rules and the token in `rules.d/` are kept.
 
 Native (Phase 1) equivalent: stop `run` and `mcp`, then
 `rm -f gateway/data/gateway_meta.db* gateway/data/gateway.db*` and
@@ -1007,6 +1054,7 @@ Native (Phase 1) equivalent: stop `run` and `mcp`, then
 
 Wipe everything including Grafana's login and "Save as" dashboards:
 `docker compose down -v`, remove the files above, `docker compose up -d`.
+This also recreates the InfluxDB users from the passwords in `.env`.
 
 ### Settings (`.env`)
 
@@ -1029,6 +1077,79 @@ later:
 ```
 docker compose exec grafana grafana cli admin reset-admin-password <new>
 ```
+
+### Database users
+
+InfluxDB asks for a login, so students cannot change or delete the data:
+
+| User | Rights | Used by | Password in `.env` |
+|---|---|---|---|
+| `admin` | everything | `gateway` | `INFLUX_ADMIN_PASSWORD` |
+| `mcp` | read, write (notes from `annotate`) on `aiot_blp` | `mcp` | `INFLUX_MCP_PASSWORD` |
+| `reader` | read `aiot_blp` | `jupyter`, `streamlit`, `grafana`, and `docker compose exec influxdb influx` | `INFLUX_READ_PASSWORD` |
+
+InfluxDB has no published port, so only the containers reach it. The
+JupyterLab container gets only the reader password: a notebook can read
+every reading, and any write, `DELETE` or `DROP` fails with
+`not authorized`. Commands that change data (section "Delete or change
+data", restore, reset) need `-username admin -password <admin-password>`.
+
+On the first start with an empty volume, InfluxDB creates the database and
+the three users from `.env` by itself. After that it ignores the passwords
+in `.env`, so changing one there alone has no effect.
+
+**Add logins to an existing install** (an Uno Q or laptop that ran the stack
+before logins existed; its data is kept). Do it in this order, so the
+services never run with logins the database does not have yet:
+
+1. With the **old** code still running (no login yet), create the users.
+   Pick three passwords (letters and digits only):
+   ```
+   docker compose exec influxdb influx -execute "CREATE USER admin WITH PASSWORD '<admin-password>' WITH ALL PRIVILEGES"
+   docker compose exec influxdb influx -execute "CREATE USER mcp WITH PASSWORD '<mcp-password>'"
+   docker compose exec influxdb influx -execute "GRANT ALL ON aiot_blp TO mcp"
+   docker compose exec influxdb influx -execute "CREATE USER reader WITH PASSWORD '<read-password>'"
+   docker compose exec influxdb influx -execute "GRANT READ ON aiot_blp TO reader"
+   docker compose exec influxdb influx -execute "SHOW USERS"
+   ```
+   `SHOW USERS` lists `admin true`, `mcp false`, `reader false`. A database
+   name other than `aiot_blp` in `.env`: use that one.
+2. `git pull`
+3. Add the same three passwords to `.env` (it is not in git, so `git pull`
+   does not change it):
+   ```
+   INFLUX_ADMIN_PASSWORD=<admin-password>
+   INFLUX_MCP_PASSWORD=<mcp-password>
+   INFLUX_READ_PASSWORD=<read-password>
+   ```
+4. `docker compose up -d --build`. InfluxDB restarts with logins on; every
+   service gets its user.
+5. Check: `docker compose ps` (all running, `influxdb` healthy),
+   `docker compose logs --tail 20 gateway mcp` (no `authorization failed`),
+   Grafana and Streamlit show data, and the "Students cannot change the
+   data" check in 2.9.
+
+To go back: check out the previous version and `docker compose up -d
+--build`. Logins are off again; the users stay and do no harm.
+
+**Change a password**: change it in InfluxDB, then in `.env`, then
+`docker compose up -d`:
+```
+docker compose exec influxdb influx -username admin -password <admin-password> -execute "SET PASSWORD FOR reader = '<new-password>'"
+```
+For the admin itself, use its current password in `-password` and
+`SET PASSWORD FOR admin`.
+
+**Who has which rights**:
+```
+docker compose exec influxdb influx -username admin -password <admin-password> -execute "SHOW USERS"
+docker compose exec influxdb influx -username admin -password <admin-password> -execute "SHOW GRANTS FOR reader"
+```
+
+**Shared notebook files**: `aiot_data.py` and `example.ipynb` are mounted
+read-only into JupyterLab, so students can run them but not change or delete
+them; File, Save Notebook As keeps a personal copy. The rest of `analysis/`
+(students' own notebooks, `streamlit_app.py`) stays editable.
 
 ### Disk space
 
@@ -1118,6 +1239,7 @@ docker save aiot-blp-gateway:local influxdb:1.13.1 grafana/grafana:13.2.5 | gzip
 # copy the file and the repository folder to the new board, then there:
 gunzip -c ~/aiot-images.tar.gz | docker load
 cp .env.example .env
+nano .env                     # the three INFLUX_*_PASSWORD values (2.3)
 docker compose up -d          # no --build
 ```
 
@@ -1231,6 +1353,10 @@ part of the repository).
 | No adapter found | Set `GATEWAY_BLE_ADAPTER=hci0` in `.env` (Docker) or export it (native); see `bluetoothctl list` |
 | `port is already allocated` | Something else (e.g. App Lab) uses 8931, 8000, 3000, 8888 or 8501; change the port in `.env` |
 | A container shows `Restarting` | `docker compose logs --tail 50 <service>` |
+| `required variable INFLUX_..._PASSWORD is missing` / `set INFLUX_..._PASSWORD in .env` | Set the three InfluxDB passwords in `.env` ("Database users") |
+| `authorization failed` in the gateway or mcp log, or the gateway keeps restarting | The user does not exist in InfluxDB or its password differs from `.env`. An install from before logins: "Add logins to an existing install". Otherwise `SET PASSWORD` ("Database users") |
+| `not authorized to execute statement` in mcp, Jupyter, Streamlit or Grafana | The user lost its rights, usually after `DROP DATABASE` (restore, reset): run the two `GRANT` lines from "Back up and restore" |
+| `influx` command: `unable to parse authentication credentials` | A command that changes data needs `-username admin -password <admin-password>` |
 | `influxdb` never becomes healthy | `docker compose logs influxdb`; often a full disk (`df -h`) |
 | `no space left on device` | "Disk space": prune, then move Docker's data to /home |
 | Build fails at `pip install` | Save the build log; most likely a package without an arm64 wheel, or no internet |

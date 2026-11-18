@@ -127,6 +127,9 @@ _DEFAULT_CONFIG = {
         "rollup_period": "5m",
         "rollup_retention": "52w",
         "meta_db_path": "data/gateway_meta.db",
+        # create/alter the database, retentions and rollup at startup
+        # (needs an InfluxDB admin; false for read/write-only logins)
+        "manage_schema": True,
     },
 }
 
@@ -165,4 +168,8 @@ def load_config(path: str | Path | None = None) -> dict:
     for var, key in _ENV_INFLUX.items():
         if os.environ.get(var):
             cfg["influx"][key] = os.environ[var]
+    if os.environ.get("INFLUX_MANAGE_SCHEMA"):
+        cfg["influx"]["manage_schema"] = (
+            os.environ["INFLUX_MANAGE_SCHEMA"].strip().lower()
+            not in ("0", "false", "no", "off"))
     return cfg

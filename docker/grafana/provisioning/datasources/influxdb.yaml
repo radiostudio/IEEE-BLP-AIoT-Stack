@@ -1,5 +1,6 @@
 # InfluxDB data source for Grafana, provisioned on every start. Locked: edit
-# this file, not the Grafana UI. $INFLUX_DB comes from compose.yaml.
+# this file, not the Grafana UI. $INFLUX_DB and $INFLUX_READ_PASSWORD come
+# from compose.yaml. Logs in as reader: Grafana can only read the data.
 apiVersion: 1
 datasources:
   - name: InfluxDB
@@ -9,6 +10,9 @@ datasources:
     url: http://influxdb:8086
     isDefault: true
     editable: false
+    user: reader
     jsonData:
       dbName: $INFLUX_DB
       httpMode: GET
+    secureJsonData:
+      password: $INFLUX_READ_PASSWORD

@@ -20,8 +20,9 @@ Words used below:
 - field: one measured quantity, e.g. "temperature_c" or "co2_ppm".
 - pandas DataFrame: a table in Python, with named columns and numbered rows.
 
-Where the database is: in the Docker stack, INFLUX_URL and INFLUX_DB are set
-in compose.yaml. Outside Docker, an InfluxDB on this machine is used.
+Where the database is: in the Docker stack, INFLUX_URL, INFLUX_DB and the
+read-only login (INFLUX_USER, INFLUX_PASSWORD) are set in compose.yaml.
+Outside Docker, an InfluxDB on this machine is used.
 """
 
 # --- Libraries ---------------------------------------------------------------
@@ -37,6 +38,14 @@ from influxdb.exceptions import InfluxDBClientError   # the error InfluxDB repor
 # these for us; the second value is used when the variable is not set.
 INFLUX_URL = os.environ.get("INFLUX_URL", "http://localhost:8086")
 INFLUX_DB = os.environ.get("INFLUX_DB", "aiot_blp")
+
+# The login for InfluxDB. In the Docker stack this is the "reader" user: it
+# can read every reading but cannot change or delete anything, so no mistake
+# in a notebook can damage the data. Empty = no login (an InfluxDB on this
+# machine without passwords).
+INFLUX_USER = os.environ.get("INFLUX_USER", "")
+INFLUX_PASSWORD = os.environ.get("INFLUX_PASSWORD", "")
+
 MCP_URL = os.environ.get("MCP_URL", "http://localhost:8000/mcp")
 
 # The time zone for the times in our tables. InfluxDB stores every time in
@@ -67,8 +76,11 @@ def client():
     if url.scheme == "https":
         use_https = True
 
+    # Log in with the user and password from the settings above
     connection = InfluxDBClient(host=url.hostname, port=port, ssl=use_https,
-                                database=INFLUX_DB)
+                                database=INFLUX_DB,
+                                username=INFLUX_USER,
+                                password=INFLUX_PASSWORD)
     return connection
 
 

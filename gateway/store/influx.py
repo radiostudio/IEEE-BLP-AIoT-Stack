@@ -113,7 +113,8 @@ class InfluxStore:
     def __init__(self, url: str, database: str, meta_db_path: str | Path,
                  username: str | None = None, password: str | None = None,
                  raw_retention: str = "7d", rollup_period: str = "5m",
-                 rollup_retention: str = "52w", wait_s: float = 30.0):
+                 rollup_retention: str = "52w", wait_s: float = 30.0,
+                 manage_schema: bool = True):
         self.url = url.rstrip("/")
         self.database = database
         self.raw_retention = raw_retention
@@ -134,7 +135,11 @@ class InfluxStore:
         self._stop = threading.Event()
 
         self._wait_ready(wait_s)
-        self._ensure_schema()
+        # Creating the database, retention policies and rollup query needs an
+        # InfluxDB admin. With login on, only the gateway is one; other
+        # processes (mcp) pass manage_schema=False and use what it set up.
+        if manage_schema:
+            self._ensure_schema()
 
         self._thread = threading.Thread(target=self._flush_loop, daemon=True,
                                         name="influx-flush")

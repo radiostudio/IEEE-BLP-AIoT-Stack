@@ -72,6 +72,17 @@
   image gets Debian's `tzdata`, so `TZ` takes effect (`up -d --build` once).
   InfluxDB keeps UTC; the dashboard, Grafana and Streamlit's charts already
   use the browser's time zone.
+- **InfluxDB logins: students can read the data, not change it.** Login is
+  on in the Docker stack: `gateway` is `admin` (the only one that can change
+  or delete data), `mcp` reads and adds notes, `jupyter`, `streamlit` and
+  Grafana log in as `reader` (read only). Passwords in `.env`
+  (`INFLUX_ADMIN_PASSWORD`, `INFLUX_MCP_PASSWORD`, `INFLUX_READ_PASSWORD`,
+  required); the image creates the users on the first start. `aiot_data`
+  logs in with `INFLUX_USER`/`INFLUX_PASSWORD`; new `INFLUX_MANAGE_SCHEMA`
+  (`false` for `mcp`) skips the admin-only database setup. `aiot_data.py`
+  and `example.ipynb` are read-only in JupyterLab. An existing install adds
+  the users by hand before updating: `UNO_Q_DEPLOY_TEST.md`, "Database
+  users".
 - **Windows program for students:** `packaging/windows/` builds
   `aiot-gateway.exe` with PyInstaller (folder build, zipped): gateway,
   dashboard and MCP server in one program on SQLite, no Python needed.

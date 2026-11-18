@@ -4,6 +4,9 @@
 #   docker compose up -d --build
 #   docker compose logs -f gateway
 #
+# Set the three INFLUX_*_PASSWORD values in .env first: compose stops with
+# "set ... in .env" until they are there.
+#
 # Dashboard on 8931, MCP on 8000, Grafana on 3000 (viewers need no login;
 # admin login from GRAFANA_ADMIN_PASSWORD in .env), JupyterLab on 8888
 # (token: JUPYTER_TOKEN in .env), Streamlit on 8501.
@@ -42,13 +45,31 @@ services:
     environment:
       INFLUXDB_REPORTING_DISABLED: "true"
       INFLUXDB_HTTP_LOG_ENABLED: "false"
+      # Login required. Only the gateway may change data:
+      #   admin   everything            gateway
+      #   mcp     read and write        mcp (annotate writes notes)
+      #   reader  read only             jupyter, streamlit, grafana
+      INFLUXDB_HTTP_AUTH_ENABLED: "true"
+      # The image creates the database and these users on the first start
+      # only (empty volume). An install that already has data: create them
+      # by hand, see UNO_Q_DEPLOY_TEST.md "Database users".
+      INFLUXDB_DB: ${INFLUX_DB:-aiot_blp}
+      INFLUXDB_ADMIN_USER: admin
+      INFLUXDB_ADMIN_PASSWORD: ${INFLUX_ADMIN_PASSWORD:?set INFLUX_ADMIN_PASSWORD in .env}
+      INFLUXDB_USER: mcp
+      INFLUXDB_USER_PASSWORD: ${INFLUX_MCP_PASSWORD:?set INFLUX_MCP_PASSWORD in .env}
+      INFLUXDB_READ_USER: reader
+      INFLUXDB_READ_USER_PASSWORD: ${INFLUX_READ_PASSWORD:?set INFLUX_READ_PASSWORD in .env}
+      # the influx command in this container logs in as reader by default
+      INFLUX_USERNAME: reader
+      INFLUX_PASSWORD: ${INFLUX_READ_PASSWORD}
     volumes:
       - influxdb-data:/var/lib/influxdb
-    # No published port: only the gateway, mcp and grafana containers reach
-    # it, over the compose network. To inspect data:
+    # No published port: only the other containers reach it, over the
+    # compose network. To inspect data (as reader):
     # docker compose exec influxdb influx
     healthcheck:
-      test: ["CMD", "influx", "-execute", "SHOW DATABASES"]
+      test: ["CMD-SHELL", "influx -username \"$$INFLUX_USERNAME\" -password \"$$INFLUX_PASSWORD\" -execute 'SHOW DATABASES'"]
       interval: 5s
       timeout: 5s
       retries: 24
@@ -61,7 +82,11 @@ services:
     restart: unless-stopped
     logging: *logging
     init: true
-    environment: *gateway-env
+    environment:
+      <<: *gateway-env
+      # the only service that may change data in InfluxDB
+      INFLUX_USER: admin
+      INFLUX_PASSWORD: ${INFLUX_ADMIN_PASSWORD}
     depends_on:
       influxdb:
         condition: service_healthy
@@ -93,7 +118,13 @@ services:
     restart: unless-stopped
     logging: *logging
     init: true
-    environment: *gateway-env
+    environment:
+      <<: *gateway-env
+      # reads, and writes notes (annotate); cannot drop the database or
+      # change its retention. The gateway sets those up, so MCP skips that.
+      INFLUX_USER: mcp
+      INFLUX_PASSWORD: ${INFLUX_MCP_PASSWORD}
+      INFLUX_MANAGE_SCHEMA: "false"
     depends_on:
       influxdb:
         condition: service_healthy
@@ -107,7 +138,9 @@ services:
     restart: unless-stopped
     logging: *logging
     environment:
-      INFLUX_DB: ${INFLUX_DB:-aiot_blp}  # read by the provisioned data source
+      # read by the provisioned data source, which logs in as reader
+      INFLUX_DB: ${INFLUX_DB:-aiot_blp}
+      INFLUX_READ_PASSWORD: ${INFLUX_READ_PASSWORD}
       GF_SECURITY_ADMIN_USER: admin
       # only read on Grafana's first start; see gateway/README.md to change it
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-radiostudio}
@@ -158,6 +191,9 @@ services:
     environment:
       <<: *gateway-env
       MCP_URL: http://mcp:8000/mcp
+      # students read the data, they cannot change or delete it
+      INFLUX_USER: reader
+      INFLUX_PASSWORD: ${INFLUX_READ_PASSWORD}
       JUPYTER_TOKEN: ${JUPYTER_TOKEN:-radiostudio}
       # local time for notebooks (datetime.now(), !date) and for the times
       # aiot_data returns; InfluxDB itself keeps UTC
@@ -171,6 +207,12 @@ services:
       - "${JUPYTER_PORT:-8888}:8888"
     volumes:
       - ./analysis:/app/analysis
+      # The shared helper and the example notebook: students can run them,
+      # not change or delete them (File > Save Notebook As keeps a copy).
+      # After a git pull, "docker compose restart jupyter" shows the new
+      # version.
+      - ./analysis/aiot_data.py:/app/analysis/aiot_data.py:ro
+      - ./analysis/example.ipynb:/app/analysis/example.ipynb:ro
 
   streamlit:
     image: aiot-blp-gateway:local
@@ -186,6 +228,8 @@ services:
     environment:
       <<: *gateway-env
       MCP_URL: http://mcp:8000/mcp
+      INFLUX_USER: reader           # read only, as in jupyter
+      INFLUX_PASSWORD: ${INFLUX_READ_PASSWORD}
       TZ: ${TZ:-Asia/Kolkata}       # local time on the page, as in jupyter
     depends_on:
       influxdb:
